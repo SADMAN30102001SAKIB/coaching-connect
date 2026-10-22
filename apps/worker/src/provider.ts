@@ -37,9 +37,9 @@ async function providerJson(
 ): Promise<unknown> {
   const url = new URL(path, base);
   if (path === 'get-balance') url.searchParams.set('api_key', config.api_key);
-  let response: Response;
+  let upstreamStatus: number | null = null;
   try {
-    response = await fetch(url, {
+    const response = await fetch(url, {
       method: body ? 'POST' : 'GET',
       headers: {
         Accept: 'application/json',
@@ -49,6 +49,23 @@ async function providerJson(
       signal: AbortSignal.timeout(15000),
       redirect: 'error',
     });
+    upstreamStatus = response.status;
+    assert(
+      response.ok,
+      response.status === 401 || response.status === 403
+        ? 'PROVIDER_REJECTED'
+        : response.status === 429
+          ? 'PROVIDER_RATE_LIMIT'
+          : 'PROVIDER_UNAVAILABLE',
+      `The SMS provider rejected the request (HTTP ${response.status}). ${
+        response.status === 401 || response.status === 403
+          ? 'Check the API key and account access with your provider.'
+          : response.status === 429
+            ? 'The provider is limiting requests. Wait before checking again.'
+            : 'Try again later or contact your provider.'
+      }`,
+      502,
+    );
     const reader = response.body?.getReader();
     assert(reader, 'PROVIDER_RESPONSE', 'The SMS provider returned an empty response.', 502);
     const chunks: Uint8Array[] = [];
@@ -71,19 +88,33 @@ async function providerJson(
       buffer.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    assert(
-      response.ok,
-      'PROVIDER_UNAVAILABLE',
-      'The SMS provider could not complete this request. Check again later.',
-      502,
-    );
     return JSON.parse(new TextDecoder().decode(buffer)) as unknown;
-  } catch {
-    throw new AppError(
-      'PROVIDER_UNAVAILABLE',
-      'The SMS provider did not return a usable response. A sending request may still have been accepted.',
-      502,
+  } catch (error) {
+    const failure =
+      error instanceof AppError
+        ? error
+        : new AppError(
+            error instanceof SyntaxError ? 'PROVIDER_RESPONSE' : 'PROVIDER_UNAVAILABLE',
+            error instanceof SyntaxError
+              ? 'The SMS provider returned an invalid response. Contact your provider if this continues.'
+              : 'Could not connect to the SMS provider or read its response. Try again later.',
+            502,
+          );
+    console.error(
+      JSON.stringify({
+        event: 'provider.request_failed',
+        operation: path,
+        code: failure.code,
+        upstreamStatus,
+      }),
     );
+    const note =
+      path === 'send-bulk-sms'
+        ? ' A sending request may still have been accepted. Check before resending.'
+        : path === 'get-balance'
+          ? ' No SMS was sent by this balance check.'
+          : ' No SMS was sent by this delivery check.';
+    throw new AppError(failure.code, failure.message + note, failure.status);
   }
 }
 export async function configFor(

@@ -14,7 +14,7 @@ import { app } from '../apps/worker/src/index';
 import { digest, hashPassword, secret, type Bindings } from '../apps/worker/src/security';
 import { now, one, rows, statement, uid } from '../apps/worker/src/db';
 import { processJob, scheduled, checkMessage } from '../apps/worker/src/campaigns';
-import { parseSubmissions } from '../apps/worker/src/provider';
+import { balance, parseSubmissions, type ProviderConfig } from '../apps/worker/src/provider';
 
 declare module 'vitest' {
   interface ProvidedContext {
@@ -143,6 +143,62 @@ describe('domain rules', () => {
   });
 });
 describe('provider contracts', () => {
+  it.each([
+    [401, 'PROVIDER_REJECTED'],
+    [403, 'PROVIDER_REJECTED'],
+    [429, 'PROVIDER_RATE_LIMIT'],
+    [500, 'PROVIDER_UNAVAILABLE'],
+    [200, 'PROVIDER_RESPONSE'],
+    [0, 'PROVIDER_UNAVAILABLE'],
+  ])('reports balance failures safely for upstream status %i', async (status, code) => {
+    const config: ProviderConfig = {
+      id: uid(),
+      center_id: centerId,
+      api_key: 'fake-secret-for-provider-tests',
+      sender_ids: '["TEST"]',
+      batch_size: 1,
+      interval_seconds: 2,
+    };
+    await statement(
+      env.DB,
+      'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,active,created_at) VALUES(?,?,?,?,0,?)',
+      config.id,
+      config.center_id,
+      config.api_key,
+      config.sender_ids,
+      now(),
+    ).run();
+    const network = vi.spyOn(globalThis, 'fetch');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    if (status) network.mockResolvedValue(new Response('not JSON', { status }));
+    else network.mockRejectedValue(new Error(`Connection failed for ${config.api_key}`));
+    try {
+      const failure = z
+        .object({ code: z.string(), status: z.number(), message: z.string() })
+        .parse(
+          await balance({ ...bindings, SMS_MODE: 'live' }, config, true).catch(
+            (error: unknown) => error,
+          ),
+        );
+      expect(failure.code).toBe(code);
+      expect(failure.status).toBe(502);
+      expect(failure.message).toContain('No SMS was sent by this balance check.');
+      expect(failure.message).not.toContain(config.api_key);
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(
+        JSON.stringify({
+          event: 'provider.request_failed',
+          operation: 'get-balance',
+          code,
+          upstreamStatus: status || null,
+        }),
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain(config.api_key);
+    } finally {
+      network.mockRestore();
+      log.mockRestore();
+    }
+  });
   it('never invents success from an empty or malformed acknowledgement', () => {
     expect(parseSubmissions({ ErrorCode: 202 }, [{ phone: '8801700000001' }])[0]?.state).toBe(
       'unknown',
