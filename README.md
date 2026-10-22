@@ -1,100 +1,140 @@
 # Coaching Connect
 
-Multi-center coaching results and personalized SMS, built as one Cloudflare Worker with Static Assets, D1 and Queues. React runs on the client; all credentials, permissions and paid SMS operations stay on the server.
+A mobile-friendly app for coaching centers to manage students, enter marks, and send personalized SMS. Teachers write a message once; the app fills in each student's name and results.
 
-## Included
+Each center has separate records, staff permissions, and its own SMS account. The interface supports English/Bangla and Light/Dark/System themes. You can install it on a phone, but viewing records and saving changes still need an internet connection.
 
-- Separate centers, platform-owner provisioning, one center owner, staff invitations and editable permission-based roles.
-- Phone/password sign-in, one-use setup links, recovery codes, password changes and verified-by-operator assisted recovery. No authentication SMS. A phone login is an identifier, not proof that the number was verified.
-- Dynamic classes, sessions, subjects, batches and exam series; student profiles and reusable guardian/student contacts. Siblings may share a number.
-- Exams with editable subject maxima/pass marks, participant snapshots, exact decimal marks, absent/pending/exempt states and concurrent-edit protection.
-- Editable templates, subject results, combined exam summaries and announcements. Send to a student, selected batches or all eligible students.
-- Real personalized previews, exclusion reasons, immediate or scheduled approval, cancellation, cached per-center balance, message history and known-ID delivery checks.
-- Durable background work, duplicate suppression, permission/consent checks before sending and safe pauses when source data or provider credentials change. Refresh only unsent recipients without replaying submitted ones.
-- Responsive English/Bangla interface, installable PWA manifest/icons, keyboard-accessible dialogs and an offline page. Private records are **not** cached for offline use.
-- Light, Dark and System appearance from the theme icon on the sign-in screen or top bar. The choice is saved on this browser, synchronizes between tabs, and follows device changes in System mode. It does not change center settings or make server requests.
+## Who does what?
 
-No import, OCR, grading engine, weighted totals, public signup or authentication SMS is included, as agreed.
+- **Platform owner:** creates centers, suspends/restores them, and helps users recover accounts after verifying their identity. This does not automatically grant access to every center's records.
+- **Center admin:** manages their center, invites staff, creates roles, and adds their SMS API key.
+- **Staff/teachers:** use the features their assigned roles allow.
+- **Students/parents:** receive messages; they do not log in.
 
-## Local setup
+Login uses a Bangladesh mobile number and password. No authentication or invitation SMS is sent. Share setup links privately. Recovery codes are one-use backup keys for forgotten passwords—save them somewhere safe. Phone numbers are not verified by SMS.
 
-Use Node 24 and the pnpm version pinned in `package.json`. In PowerShell:
+## How a teacher uses it
+
+1. Create classes, sessions, subjects, and batches with your own names.
+2. Add students and student/guardian contacts. Students can join multiple batches; siblings can share a number.
+3. Create an exam, choose subjects and maximum marks, add participants, and enter results.
+4. Choose a subject result, combined results from several exams, or an announcement. Reuse a template or edit the message.
+5. Select recipients, review personalized previews and exclusions, then send now or schedule.
+6. Check message history, delivery status, and the center's SMS balance.
+
+Zero marks, absent, pending, and exempt are different results. Missing/pending results and contacts without SMS permission are excluded from result messages. Announcements do not need marks. Overlapping selections are deduplicated; siblings still get separate results.
+
+This is not a full school management system. It does not include imports, fees, attendance, student portals, online exams, grading formulas, weighted totals, or rankings. Combined summaries list results rather than calculate a new grade.
+
+## Run locally
+
+Use **Node 24** and **pnpm 12.15.0**, matching `package.json`. From the repository root in PowerShell:
 
 ```powershell
 pnpm install --frozen-lockfile
 Copy-Item .dev.vars.example .dev.vars
+```
+
+Do not overwrite an existing `.dev.vars`. Edit it before continuing:
+
+- Set `BOOTSTRAP_TOKEN` to a random secret of at least 32 characters. This is your first-account setup key, not your SMS API key.
+- Keep `SMS_MODE="mock"` locally. Mock mode never contacts the SMS provider.
+
+```powershell
 pnpm db:local
 pnpm dev
 ```
 
-Replace the example setup key in `.dev.vars` with a random value of at least 32 characters. Keep `SMS_MODE="mock"` locally. Open the address printed by Vite, choose **Set up platform**, and create the platform owner with that key. Save the recovery codes immediately.
+Open the terminal's address. Choose **Set up platform**, enter your setup key, create your owner account, and save the recovery codes. Create a center and privately share its setup link with the admin.
 
-The platform owner creates a center and privately shares its one-use invitation link with its admin. The admin creates subjects/batches, students/contacts, exams and participants, enters marks, and prepares a message preview. Configure an account in **Settings → SMS account** before approving a campaign. In mock mode any clearly fake test key works and no SMS provider request is made.
+A clearly fake provider key works for local mock tests. Never put real keys in tests. `.dev.vars` and `APIDocs.txt` are excluded from Git. The API document contains an apparent credential; replace it with the provider if genuine.
 
-Never copy a real provider key into test files. `APIDocs.txt` is intentionally ignored because it contains an apparent credential. If genuine, rotate that credential. The original document has not been modified or published.
-
-## Checks and production preview
+## Code checks
 
 ```powershell
-pnpm check
-pnpm test:browser
+pnpm typecheck       # TypeScript
+pnpm lint            # ESLint; warnings also fail
+pnpm format:check    # Check formatting
+pnpm format          # Apply formatting
+pnpm check           # Formatting, lint, types, integration tests, production build
+pnpm test:browser    # Run after pnpm check builds the app
+pnpm dlx fallow@3.34.1 dead-code
 ```
 
-`check` runs formatting, strict zero-warning lint, strict TypeScript, Worker/D1 integration tests and the production build. Browser tests automatically migrate their separate database and start the built Worker on port 4173, with test-only mock settings. They use `.wrangler/browser-state`, not your normal development database. Local browser tests use installed Google Chrome; CI installs Playwright Chromium. The tests create **local test records**, not production data.
+Browser tests use a separate local database, mock SMS, and port 4173—not production records. They use installed Chrome locally and Playwright Chromium in CI, covering desktop/mobile workflows, themes, and accessibility.
 
-`pnpm preview` opens the built application without HMR. `pnpm build` is required first. Local CLI commands use the same `.wrangler/state` directory. `pnpm types` regenerates binding/runtime types after configuration changes.
+`pnpm preview` runs the latest build locally; build first. `pnpm types` regenerates Cloudflare binding types.
 
-The GitHub `Quality` workflow runs these checks, including desktop/mobile browser journeys and an automated home-screen accessibility check. It does not deploy. Make the check required on `main` before enabling production builds. This workflow has been authored locally; a GitHub-hosted run is not yet verified.
+GitHub's **Quality** workflow runs Fallow, `pnpm check`, and browser tests. Fallow/browser tests are separate from `pnpm check`. GitHub CI does not deploy or automatically block Cloudflare's independent builds. Require checks before merging to `main`; direct pushes can still trigger deployment.
 
-## GitHub → Cloudflare deployment
+## Deploy through GitHub → Cloudflare
 
-There is no local production-deploy script. Do not upload `dist`, `.wrangler`, `.dev.vars`, test results or the original API documentation. Publishing this repository does not itself deploy the application; configure the Git-connected Cloudflare build below.
+The frontend and backend deploy together as **one Worker with Static Assets**, plus D1 and Queues. Use **Workers Builds, not Pages**.
 
-1. In the intended Cloudflare account, create a D1 database named `coaching-connect`. Add its actual `database_id` to the `DB` entry in `wrangler.jsonc`. This is account configuration, not a placeholder application implementation.
-2. Create queues named `coaching-sms` and `coaching-sms-failed`. The Worker consumes the first; the second holds exhausted queue deliveries. Keep the names aligned with `wrangler.jsonc` if changing them.
-3. Commit the reviewed source to your intended GitHub repository. Connect that repository to **Workers Builds**, not Pages. Use the repository root and production branch `main`.
-4. Use Node 24 and pnpm 12.14.0 in the build environment. Set `NODE_VERSION=24.18.0` and `PNPM_VERSION=12.14.0` if the build image does not select them from the manifest. The essential blocking **build command** is `pnpm install --frozen-lockfile && pnpm check`.
-5. The Cloudflare-side **deploy command** is `pnpm db:remote && pnpm exec wrangler deploy --config dist/coaching_connect/wrangler.json`. This applies reviewed migrations first, then deploys the built Worker and assets. It runs in Cloudflare's Git-connected build, **not on your local computer**. The build token needs D1 edit access as well as Worker/Queues deployment access. Do not use a default token that lacks the required permissions.
-6. Use a Workers plan that supports the configured 3,000 ms CPU limit. Password hashing is intentionally expensive; do not weaken it to fit a tiny CPU budget. The same Worker serves all centers; no Worker/database is provisioned per center.
-7. Add the runtime secret `BOOTSTRAP_TOKEN` under the Worker's **Variables & Secrets**. Use a newly generated random secret, never the local/browser-test key. Build-only variables are not runtime secrets. On the first deployment, create the platform owner through **Set up platform**, save recovery codes, then remove the bootstrap secret. Subsequent bootstrap attempts are also rejected by the database's one-platform-owner constraint.
-8. Add your domain through the Worker's custom-domain settings. HTTPS is required for secure production cookies and normal PWA installation.
-9. Initially leave the source configuration `SMS_MODE="disabled"`. Create records and inspect previews. Enter each center's own approved API key/sender IDs in that center's settings. Account replacement/ownership transfer requires a login within the last ten minutes; sign out/in if prompted.
-10. Only for an approved sending pilot, change `SMS_MODE` to `live` in the source configuration and let the GitHub-connected build release it. Confirm a small send to consenting test recipients, the provider message IDs, received Bangla/long-message content, actual charges and delivery reports before large sends.
+**Current source settings:** domain `coaching.autonovaq.com`, SMS mode **live**, dispatch enabled, and **100% log sampling**. Worker/preview URLs are disabled. Approved sends can spend a center's SMS balance after deployment. For a fresh environment, start with SMS disabled until ready for a small paid test.
 
-Use separate D1 databases, queues, runtime secrets and domains for staging. Never point a preview branch at production bindings or use version uploads as if they isolate production data. Disable non-production branch deployments until a separate staging setup is configured. Serialize production migrations/releases and cancel superseded builds; never run schema migrations from both a GitHub deploy workflow and Workers Builds.
+### One-time Cloudflare setup
 
-Cloudflare's documented [build configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/) distinguishes build, deploy, preview and runtime settings. The Vite build writes the deployable config to `dist/coaching_connect/wrangler.json`; deploying only `dist/client` would omit the API and job handlers.
+1. Use Workers Paid for the configured 3,000 ms CPU allowance. Do not weaken password hashing to fit the Free plan's CPU budget.
+2. Create D1 database `coaching-connect` and set its ID in `wrangler.jsonc`. The current account's ID is already configured; replace it for another account. Do not manually create tables.
+3. Create queue `coaching-sms`. Cloudflare creates its configured dead-letter queue `coaching-sms-failed` if missing.
+4. Connect the repository to Workers Builds: Worker `coaching-connect`, branch `main`, root directory `/`.
+5. Set build variables `NODE_VERSION=24.18.0` and `PNPM_VERSION=12.15.0`. The build token needs Workers Scripts, D1, and Queues **Edit** permissions for this account; update the generated token if needed.
+6. Keep branch preview builds off until staging has separate databases, queues, secrets, and domains. Never use production records for preview testing.
 
-## SMS safety and provider limits
+**Build command:**
 
-- `disabled`: no provider access or send approval. `mock`: fake balance, submission IDs and delivery, with no provider network calls. `live`: real provider operations and real charges.
-- The adapter implements the documented bulk POST, balance GET and known-message status POST. Individual messages use a one-recipient bulk request; there is no separate credential-bearing send URL in the browser. This one-item bulk behavior still needs the live pilot to confirm.
-- Default batch size is **one**, not an invented provider capacity. Admins can change batch size/pacing within bounded request limits after confirming their provider's limits. Large audiences are processed in bounded chunks, not one huge HTTP request. Capacity is finite and sending speed depends on queue/provider/account limits.
-- An ID-confirmed submission is **accepted**, not necessarily delivered. A completed campaign has finished submission work; delivery checks can continue afterward. Automatic known-ID checks back off and stop after 24 hours; the user can check a known unresolved message manually afterward, at most once a minute.
-- Timeout, malformed responses and unmapped acknowledgements become **unknown** and pause the campaign. Never silently resend them. An explicit risk-confirmed retry creates a new review campaign and may still charge/deliver twice if the original actually succeeded.
-- The provider does not document idempotency or a searchable client reference, so nobody can honestly promise exactly-once carrier delivery. A queue cannot fix that external limitation.
-- The provider has no documented account-wide history endpoint. The app shows its own full paginated campaign history; messages sent outside this app must be checked in the provider dashboard. The claimed sandbox is not called because its non-billing/non-delivery behavior is unproven. No inbound SMS or billing tariff is invented.
-- Segment counts are standard GSM-7/Unicode estimates, not account-specific pricing. Bangla, emoji and long messages can consume multiple paid segments. The provider determines actual cost.
+```sh
+pnpm install --frozen-lockfile && pnpm check
+```
 
-## Security, efficiency and operations
+**Deploy command:**
 
-Every center request and background batch rechecks membership/permissions. Platform-owner status does not bypass center permissions. Composite tenant foreign keys, prepared SQL, one-use claim guards, exact fixed-point marks and conditional state transitions enforce data boundaries. Sessions/recovery/setup tokens are hashed; native scrypt hashes passwords with random salts. Mutations require same-origin JSON; API responses are no-store.
+```sh
+pnpm db:remote && pnpm exec wrangler deploy --config dist/coaching_connect/wrangler.json
+```
 
-As explicitly requested, per-center provider keys are stored in D1 without additional application encryption. API responses show only the configured status/suffix; logs and queue bodies omit keys and SMS text. Historical credential revisions remain in D1 for older-message lookups. Protect database access, backups and exports accordingly; revoke compromised credentials with the provider. There is no automatic retention purge that might delete necessary sending evidence.
+These run in Cloudflare after a GitHub push. The deploy command applies SQL migrations before publishing. Do not deploy only `dist/client`; that omits the backend. Do not upload local secrets or generated build/test output. Avoid overlapping releases, and do not run production migrations from a second deployment workflow too.
 
-Indexed cursor pagination avoids offset scans. Home counts are maintained on writes instead of counting every student/exam on each visit. Balance calls are cached for a minute and concurrent refreshes share a lease. Message checks back off; polling stops on terminal campaigns. A runtime test verifies an indexed prefix search over 1,000 students reads fewer than 40 rows for 10 matches. This is evidence for that query, **not** an unmeasured promise about all production workloads. Measure D1 rows read/written and Worker CPU in your account as real usage grows.
+The domain is declared in `wrangler.jsonc`; its zone must be in the same Cloudflare account. Keep runtime/domain settings in Git rather than making conflicting dashboard edits. See Cloudflare's [build settings](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/) and [custom domain guide](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/).
 
-If sending must stop, set `DISPATCH_ENABLED="false"` in the source and release it through the connected build; optionally pause the queue consumer in Cloudflare for immediate incident response. Existing provider requests cannot be recalled. Center suspension stops further authorized batches. Inspect paused campaigns, unknown submissions, the oldest outstanding job and the failed queue. Resolve a cause before approving **Refresh unsent messages** or explicitly resending uncertain messages. Do not simply replay failed queue entries as fresh SMS sends.
+### First account and first real SMS
 
-Before D1 restoration, stop dispatch and queue consumption, preserve current provider IDs and a recovery checkpoint, and record the affected time window. After restoring, reconcile recent sends against provider records and invalidate affected sessions/setup/recovery credentials. **Never restart a restored outbox blindly**: the external SMS cannot be rolled back with the database. Worker rollback does not undo migrations or messages. Use additive, backward-compatible migrations.
+1. Add runtime **Secret** `BOOTSTRAP_TOKEN` under **Worker → Settings → Variables & Secrets**. Use a new random value of at least 32 characters, not the local key. Runtime secrets are separate from build variables.
+2. Open the app, choose **Set up platform**, and enter that key. Save recovery codes, then remove the secret. Setup only allows one platform owner.
+3. Create a center. Its admin completes setup and enters their API key and approved sender IDs in the app's SMS settings—not Cloudflare variables.
+4. Add a few records and review previews. If SMS is disabled, change `SMS_MODE` to `live` through Git when ready.
+5. Send to consenting test recipients. Verify receipt, Bangla/long messages, actual charges, delivery checks, and scheduled sending before sending to a whole class.
 
-## Repository map
+Replacing provider credentials or transferring ownership requires a recent login. Sign out/in if prompted.
 
-- `apps/web`: React UI, design tokens, translated interface, PWA assets.
-- `apps/worker`: authentication, scoped API, provider adapter and durable job handlers.
-- `packages/domain`: shared schemas, permissions, templates, marks and schedule/segment calculations.
-- `packages/db/migrations`: ordered SQL schema changes; apply with Wrangler, not manual edits to deployed tables.
-- `tests`: Worker/D1 integration and desktop/mobile browser tests.
-- `docs/planning`: original requirements/design investigation; this README describes the implemented configuration and operational steps.
+## Important SMS rules
 
-Local automated checks and mock journeys do not prove real provider billing/carrier delivery, a live Cloudflare release, a real-device PWA installation or limitless scale. Those account/device/provider checks remain release verification, not hidden unfinished application code.
+- **Modes:** `disabled` blocks provider access/send approval; `mock` simulates it without provider calls; `live` makes real requests. Local `.dev.vars` can override the source mode locally.
+- **Charges:** Bangla, emoji, and long messages may use several paid segments. Displayed counts are estimates; the provider sets the actual charge.
+- **Capacity:** sends run in chunks, starting at one recipient per provider request. Only increase batch size after confirming provider limits. Capacity is not unlimited.
+- **Delivery:** accepted does not mean delivered. A completed campaign has finished submission, not necessarily delivery. Automatic delivery checks stop after 24 hours; unresolved known messages can still be checked manually.
+- **Unknown sends:** a timeout can happen after an SMS was accepted. The app pauses uncertain sends instead of blindly retrying. Check the provider dashboard first; a resend can deliver and charge twice.
+- **Changed records:** edits to results, contacts, permissions, or credentials can require another review. **Refresh unsent messages** does not replay already-submitted ones.
+- **History:** the app records its own sends. The documented provider API checks a known message ID, not the whole account's history. Check messages sent elsewhere in the provider dashboard.
+- **Testing:** provider sandbox safety is unconfirmed, so local mock mode is used. Automated tests do not prove real delivery, billing, or production capacity.
+
+## When something goes wrong
+
+**Stop sending:** pause the queue consumer in Cloudflare for immediate intervention. Set `DISPATCH_ENABLED="false"` in the source and release through Git to stop background dispatch. Set `SMS_MODE="disabled"` too to block provider access/new send approvals. Suspending a center blocks its access and further authorized batches. Already-submitted SMS cannot be recalled.
+
+**Resume carefully:** investigate paused campaigns, unknown sends, and the failed queue. Do not blindly replay failed queue messages.
+
+**Restore D1 carefully:** stop dispatch and queue consumption first. Preserve recent provider IDs and note the affected time window. After restoration, compare recent sends with provider records and invalidate affected login/setup/recovery credentials before restarting. Restoring data does not undo SMS; restored pending work could send duplicates. Worker rollbacks do not undo migrations. Add new migrations rather than rewriting applied ones.
+
+**Protect credentials:** provider keys are stored in D1 without extra application-level encryption, as requested. Older versions remain for checking older messages. Protect database access, backups, and exports. Passwords/account tokens are hashed; application logs omit API keys and SMS text. With 100% log sampling, monitor logging usage/costs.
+
+## Code layout
+
+- `apps/web`: React pages, shared UI, themes, translations, and PWA assets.
+- `apps/worker`: login, permissions, APIs, provider calls, and background sending.
+- `packages/domain`: shared validation, templates, marks, and schedule calculations.
+- `packages/db/migrations`: database schema changes in SQL; no Drizzle schema.
+- `tests`: Worker/database integration and browser tests.
+
+Queries use indexed pagination, cached balance checks, and stored dashboard counts to reduce unnecessary reads. Monitor real Worker CPU, D1 usage, and provider charges as usage grows.
