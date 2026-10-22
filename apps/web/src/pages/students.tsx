@@ -276,8 +276,8 @@ function StudentForm({ initial }: { initial?: Detail }) {
         phone: c.phone,
         label: c.label,
         audience: c.audience,
-        permitted: Boolean(c.permitted),
-      })) ?? [{ phone: '', label: '', audience: 'guardian' as const, permitted: false }],
+        permitted: true,
+      })) ?? [{ phone: '', label: '', audience: 'guardian' as const, permitted: true }],
   );
   const [groups, setGroups] = useState<string[]>(initial?.groups.map((g) => g.group_id) ?? []);
   const [dirty, setDirty] = useState(false);
@@ -308,7 +308,7 @@ function StudentForm({ initial }: { initial?: Detail }) {
               body: {
                 name: form.get('name'),
                 identifier: form.get('identifier'),
-                contacts,
+                contacts: contacts.map((c) => ({ ...c, permitted: true })),
                 group_ids: groups,
                 ...(initial ? { version: initial.version } : {}),
               },
@@ -347,7 +347,7 @@ function StudentForm({ initial }: { initial?: Detail }) {
               onClick={() => {
                 setContacts((all) => [
                   ...all,
-                  { phone: '', label: '', audience: 'guardian', permitted: false },
+                  { phone: '', label: '', audience: 'guardian', permitted: true },
                 ]);
                 setDirty(true);
               }}
@@ -389,14 +389,6 @@ function StudentForm({ initial }: { initial?: Detail }) {
                 </Field>
               </div>
               <div className="contact-bottom">
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={contact.permitted}
-                    onChange={(e) => updateContact(i, { permitted: e.target.checked })}
-                  />
-                  {t('Permission to send SMS')}
-                </label>
                 <Button
                   type="button"
                   variant="ghost"
