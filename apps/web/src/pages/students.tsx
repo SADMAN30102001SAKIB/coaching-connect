@@ -78,7 +78,7 @@ function Students() {
                   <span className="initial-avatar">{student.name.slice(0, 1)}</span>
                   <div className="grow">
                     <strong>{student.name}</strong>
-                    <small>{student.identifier || 'No identifier'}</small>
+                    <small>{student.identifier || t('No identifier')}</small>
                   </div>
                   <span className="row-arrow">→</span>
                 </Link>
@@ -144,7 +144,10 @@ function StudentDetail() {
                 student.data.contacts.map((contact) => (
                   <div className="record-row" key={`${contact.id}-${contact.audience}`}>
                     <div className="grow">
-                      <strong>{contact.label}</strong>
+                      <strong>
+                        {contact.label ||
+                          t(contact.audience === 'student' ? 'Student' : 'Guardian')}
+                      </strong>
                       <small>
                         {contact.phone} ·{' '}
                         {t(contact.audience === 'student' ? 'Student' : 'Guardian')}
@@ -329,7 +332,7 @@ function StudentForm({ initial }: { initial?: Detail }) {
             <Field label="Name">
               <input name="name" defaultValue={initial?.name} required maxLength={160} />
             </Field>
-            <Field label="Identifier / roll">
+            <Field label="Identifier / roll (optional)">
               <input name="identifier" defaultValue={initial?.identifier} maxLength={80} />
             </Field>
           </div>
@@ -364,10 +367,9 @@ function StudentForm({ initial }: { initial?: Detail }) {
                     onChange={(e) => updateContact(i, { phone: e.target.value })}
                   />
                 </Field>
-                <Field label="Relationship">
+                <Field label="Relationship (optional)">
                   <input
                     value={contact.label}
-                    required
                     placeholder="Mother, father, self…"
                     onChange={(e) => updateContact(i, { label: e.target.value })}
                   />

@@ -202,7 +202,7 @@ const studentSchema = z.object({
     .array(
       z.object({
         phone: phoneSchema,
-        label: nameSchema,
+        label: z.string().trim().max(160).default(''),
         audience: z.enum(['student', 'guardian']),
         permitted: z.boolean(),
       }),
