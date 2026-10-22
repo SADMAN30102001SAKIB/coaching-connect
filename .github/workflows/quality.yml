@@ -22,6 +22,8 @@ jobs:
           package-manager-cache: false
       - uses: pnpm/action-setup@v6
       - run: pnpm install --frozen-lockfile
+      - name: Check dead code
+        run: pnpm dlx fallow@3.34.1 dead-code
       - run: pnpm check
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:browser

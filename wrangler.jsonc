@@ -1,6 +1,9 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "coaching-connect",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "coaching.autonovaq.com", "custom_domain": true }],
   "main": "apps/worker/src/index.ts",
   "compatibility_date": "2026-10-19",
   "compatibility_flags": ["nodejs_compat"],
@@ -32,7 +35,7 @@
     ],
   },
   "triggers": { "crons": ["* * * * *"] },
-  "vars": { "SMS_MODE": "disabled", "DISPATCH_ENABLED": "true" },
-  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "vars": { "SMS_MODE": "live", "DISPATCH_ENABLED": "true" },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
   "limits": { "cpu_ms": 3000 },
 }
