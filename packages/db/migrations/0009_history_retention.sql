@@ -1,0 +1,15 @@
+ALTER TABLE campaigns ADD COLUMN finished_at INTEGER;
+ALTER TABLE campaigns ADD COLUMN source_campaign_id TEXT REFERENCES campaigns(id);
+UPDATE campaigns SET finished_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE state IN ('completed','cancelled');
+UPDATE campaigns SET source_campaign_id=json_extract(selection,'$.resumption_source') WHERE json_extract(selection,'$.resumption_source') IS NOT NULL;
+UPDATE campaigns SET source_campaign_id=(SELECT original.campaign_id FROM messages retry JOIN messages original ON original.id=retry.logical_key AND original.center_id=retry.center_id WHERE retry.center_id=campaigns.center_id AND retry.campaign_id=campaigns.id LIMIT 1) WHERE source_campaign_id IS NULL;
+CREATE INDEX campaigns_retention ON campaigns(finished_at,id) WHERE state IN ('completed','cancelled');
+CREATE INDEX campaigns_purging ON campaigns(id) WHERE state='purging';
+CREATE INDEX campaigns_source ON campaigns(source_campaign_id);
+CREATE INDEX messages_retention_blockers ON messages(center_id,campaign_id) WHERE state NOT IN ('delivered','failed','skipped','cancelled');
+CREATE INDEX attempts_campaign ON attempts(center_id,campaign_id,id);
+CREATE INDEX jobs_campaign ON jobs(center_id,campaign_id);
+CREATE INDEX invitations_expiry ON invitations(expires_at);
+CREATE TRIGGER campaign_finished AFTER UPDATE OF state ON campaigns WHEN NEW.state IN ('completed','cancelled') AND OLD.state!=NEW.state BEGIN UPDATE campaigns SET finished_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE id=NEW.id; END;
+CREATE TRIGGER campaign_delivery_finished AFTER UPDATE OF state ON messages WHEN NEW.state!=OLD.state BEGIN UPDATE campaigns SET finished_at=CAST(unixepoch('subsec')*1000 AS INTEGER) WHERE id=NEW.campaign_id AND state IN ('completed','cancelled'); END;
+CREATE TRIGGER campaign_source_available BEFORE INSERT ON campaigns WHEN NEW.source_campaign_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM campaigns WHERE id=NEW.source_campaign_id AND center_id=NEW.center_id AND state!='purging') BEGIN SELECT RAISE(ABORT,'PREVIEW_CHANGED'); END;

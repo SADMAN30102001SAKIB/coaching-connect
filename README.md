@@ -121,7 +121,14 @@ Replacing provider credentials or transferring ownership requires a recent login
 
 ## When something goes wrong
 
-Audit history keeps the last seven days. The existing every-minute background task deletes older entries in batches of up to 1,000, even when SMS dispatch is disabled. This includes recovery/security audit notes, not student records, results, or SMS history. A backlog may take several runs to clear.
+The existing every-minute task cleans up temporary data even when SMS dispatch is disabled:
+
+- **Audit history:** entries older than seven days, including recovery/security audit notes.
+- **Finished SMS history:** completed/cancelled campaigns older than 30 days, together with their messages, attempts, exclusions, and approval records. The clock starts when a campaign finishes and restarts when a message's delivery state changes. Pending, uncertain, unresolved-delivery, or job-backed campaigns are kept. A campaign referenced by a resend/rebuilt campaign is kept until that dependent history is removed.
+- **Temporary records:** expired sessions, invitations, rate-limit entries, and assisted-recovery codes. Valid personal recovery codes stay. Used-token records are removed only when no matching valid invitation or recovery code remains.
+- **Old SMS settings:** inactive balance caches are removed after refreshes finish. Inactive credentials are deleted only when no campaign or balance cache references them. Active credentials stay. Saving identical settings does not create a new version or pause sends.
+
+Deletion runs in small batches, so a backlog may take several runs. History being removed is no longer available to view or resend. Student profiles, contacts, exams, and results are not automatically deleted. Existing finished campaigns receive a fresh 30-day window when the retention migration is first applied.
 
 **Stop sending:** pause the queue consumer in Cloudflare for immediate intervention. Set `DISPATCH_ENABLED="false"` in the source and release through Git to stop background dispatch. Set `SMS_MODE="disabled"` too to block provider access/new send approvals. Suspending a center blocks its access and further authorized batches. Already-submitted SMS cannot be recalled.
 
@@ -129,7 +136,7 @@ Audit history keeps the last seven days. The existing every-minute background ta
 
 **Restore D1 carefully:** stop dispatch and queue consumption first. Preserve recent provider IDs and note the affected time window. After restoration, compare recent sends with provider records and invalidate affected login/setup/recovery credentials before restarting. Restoring data does not undo SMS; restored pending work could send duplicates. Worker rollbacks do not undo migrations. Add new migrations rather than rewriting applied ones.
 
-**Protect credentials:** provider keys are stored in D1 without extra application-level encryption, as requested. Older versions remain for checking older messages. Protect database access, backups, and exports. Passwords/account tokens are hashed; application logs omit API keys and SMS text. With 100% log sampling, monitor logging usage/costs.
+**Protect credentials:** provider keys are stored in D1 without extra application-level encryption, as requested. Older versions remain while campaign history needs them for delivery checks. Protect database access, backups, and exports. Passwords/account tokens are hashed; application logs omit API keys and SMS text. With 100% log sampling, monitor logging usage/costs.
 
 ## Code layout
 

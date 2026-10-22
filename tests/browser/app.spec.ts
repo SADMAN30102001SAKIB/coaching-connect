@@ -148,6 +148,34 @@ test('phone login, center onboarding and responsive academic workflow', async ({
   await expect(page.getByText('Completed', { exact: true })).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('MOCK TEST — not a real SMS', { exact: false })).toBeVisible();
   await page.screenshot({ path: `test-results/${info.project.name}-messages.png`, fullPage: true });
+  const campaignUrl = page.url();
+  await page.goto('/more');
+  const securityLink = page.locator('.menu-list').getByRole('link', { name: 'Account security' });
+  const securityIcon = securityLink.locator('svg').first();
+  await expect(securityIcon).toHaveCSS('transform', 'none');
+  await expect(securityIcon).toHaveCSS('margin-left', '0px');
+  await expect(securityLink.locator('svg')).toHaveCount(2);
+  await checkAccessibility();
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const icon = await securityIcon.boundingBox();
+    const otherIcon = await page
+      .locator('.menu-list > a')
+      .first()
+      .locator('svg')
+      .first()
+      .boundingBox();
+    expect(icon?.x).toBe(otherIcon?.x);
+    expect(
+      await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
+    ).toBe(true);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: `test-results/${info.project.name}-more.png`, fullPage: true });
+  await securityLink.click();
+  await expect(page).toHaveURL(/\/security$/);
+  await expect(page.getByRole('heading', { name: 'Account security', exact: true })).toBeVisible();
+  await page.goto(campaignUrl);
   for (const width of [320, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(

@@ -675,7 +675,7 @@ select:disabled {
   text-align: left;
   font-size: 15px;
 }
-.menu-list > a svg:last-child {
+.menu-list > a > svg:last-child:not(:first-child) {
   margin-left: auto;
   transform: rotate(-90deg);
 }

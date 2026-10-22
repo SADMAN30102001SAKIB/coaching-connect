@@ -214,7 +214,7 @@ centerApi.get('/home', async (c) => {
   const campaigns = a.grants.includes('messages.read')
     ? await rows(
         c.env.DB,
-        'SELECT id,name,state,total,submitted,delivered,failed,unknown,created_at,scheduled_at FROM campaigns WHERE center_id=? ORDER BY created_at DESC LIMIT 5',
+        "SELECT id,name,state,total,submitted,delivered,failed,unknown,created_at,scheduled_at FROM campaigns WHERE center_id=? AND state!='purging' ORDER BY created_at DESC LIMIT 5",
         a.center.id,
       )
     : [];
@@ -278,29 +278,54 @@ centerApi.put('/provider', async (c) => {
       interval_seconds: z.number().int().min(1).max(300),
     })
     .parse(await c.req.json());
+  const current = await configFor(c.env.DB, a.center.id);
+  const senders = JSON.stringify(input.sender_ids);
+  if (
+    current?.api_key === input.api_key &&
+    current.sender_ids === senders &&
+    current.batch_size === input.batch_size &&
+    current.interval_seconds === input.interval_seconds
+  )
+    return c.json({ ok: true });
+  const configId = uid();
   await c.env.DB.batch([
     statement(
       c.env.DB,
-      'UPDATE provider_configs SET active=0 WHERE center_id=? AND active=1',
+      'UPDATE provider_configs SET active=0 WHERE center_id=? AND active=1 AND NOT(api_key=? AND sender_ids=? AND batch_size=? AND interval_seconds=?)',
       a.center.id,
+      input.api_key,
+      senders,
+      input.batch_size,
+      input.interval_seconds,
     ),
     statement(
       c.env.DB,
-      'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,batch_size,interval_seconds,created_at) VALUES(?,?,?,?,?,?,?)',
-      uid(),
+      'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,batch_size,interval_seconds,created_at) SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM provider_configs WHERE center_id=? AND active=1)',
+      configId,
       a.center.id,
       input.api_key,
-      JSON.stringify(input.sender_ids),
+      senders,
       input.batch_size,
       input.interval_seconds,
       now(),
+      a.center.id,
     ),
     statement(
       c.env.DB,
-      "UPDATE campaigns SET state='needs_review',reason='SMS credentials changed. Prepare a new preview.' WHERE center_id=? AND state IN ('queued','scheduled','paused','ready_for_review')",
+      "UPDATE campaigns SET state='needs_review',reason='SMS credentials changed. Prepare a new preview.' WHERE center_id=? AND state IN ('queued','scheduled','paused','ready_for_review') AND EXISTS(SELECT 1 FROM provider_configs WHERE id=?)",
       a.center.id,
+      configId,
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'provider.replace', a.center.id),
+    statement(
+      c.env.DB,
+      "INSERT INTO audit SELECT ?,?,?,'provider.replace',?,? WHERE EXISTS(SELECT 1 FROM provider_configs WHERE id=?)",
+      uid(),
+      a.center.id,
+      a.user.id,
+      a.center.id,
+      now(),
+      configId,
+    ),
   ]);
   return c.json({ ok: true });
 });

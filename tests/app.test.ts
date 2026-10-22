@@ -15,6 +15,7 @@ import { digest, hashPassword, secret, type Bindings } from '../apps/worker/src/
 import { now, one, rows, statement, uid } from '../apps/worker/src/db';
 import { processJob, scheduled, checkMessage } from '../apps/worker/src/campaigns';
 import { balance, parseSubmissions, type ProviderConfig } from '../apps/worker/src/provider';
+import { cleanup } from '../apps/worker/src/cleanup';
 
 declare module 'vitest' {
   interface ProvidedContext {
@@ -1091,6 +1092,474 @@ describe('preserving academic relationships', () => {
     ).not.toBeNull();
   });
 });
+describe('history retention', () => {
+  const center = uid();
+  const student = uid();
+  const contact = uid();
+  const month = 30 * 86400000;
+  beforeAll(async () => {
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+        center,
+        'Retention',
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+      statement(
+        env.DB,
+        'INSERT INTO students(id,center_id,name) VALUES(?,?,?)',
+        student,
+        center,
+        'Keep student',
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO contacts(id,center_id,phone) VALUES(?,?,?)',
+        contact,
+        center,
+        '8801700000099',
+      ),
+    ]);
+  });
+  async function campaign(state: string, finishedAt: number | null, source: string | null = null) {
+    const id = uid();
+    await statement(
+      env.DB,
+      `INSERT INTO campaigns(id,center_id,name,authorizer,selection,state,revision,created_at,idempotency_key,finished_at,source_campaign_id) SELECT ?,?,'Retention test',?,'{}',?,revision,?,?,?,? FROM centers WHERE id=?`,
+      id,
+      center,
+      userId,
+      state,
+      now() - 90 * 86400000,
+      uid(),
+      finishedAt,
+      source,
+      center,
+    ).run();
+    return id;
+  }
+  async function message(campaignId: string, state: string) {
+    const id = uid();
+    await statement(
+      env.DB,
+      'INSERT INTO messages(id,center_id,campaign_id,student_id,student_name,contact_id,phone,body,segments,state,logical_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+      id,
+      center,
+      campaignId,
+      student,
+      'Keep student',
+      contact,
+      '8801700000099',
+      'Test',
+      1,
+      state,
+      id,
+    ).run();
+    return id;
+  }
+  it('expires only finished campaigns older than 30 days, retaining active and uncertain work', async () => {
+    const timestamp = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(timestamp);
+    try {
+      const expired = [
+        await campaign('completed', timestamp - month - 1),
+        await campaign('cancelled', timestamp - month - 1),
+      ];
+      const keep = [
+        await campaign('completed', timestamp - month),
+        await campaign('completed', timestamp - 1000),
+      ];
+      for (const state of [
+        'preparing',
+        'ready_for_review',
+        'queued',
+        'scheduled',
+        'processing',
+        'paused',
+        'needs_review',
+      ])
+        keep.push(await campaign(state, timestamp - month - 1));
+      for (const state of ['pending', 'submitting', 'unknown', 'accepted']) {
+        const id = await campaign('completed', timestamp - month - 1);
+        await message(id, state);
+        keep.push(id);
+      }
+      const source = await campaign('completed', timestamp - month - 1);
+      keep.push(source, await campaign('preparing', null, source));
+      const withJob = await campaign('completed', timestamp - month - 1);
+      await statement(
+        env.DB,
+        'INSERT INTO jobs(id,center_id,campaign_id,due_at) VALUES(?,?,?,?)',
+        withJob,
+        center,
+        withJob,
+        timestamp,
+      ).run();
+      keep.push(withJob);
+      await cleanup(env.DB);
+      await cleanup(env.DB);
+      for (const id of expired)
+        expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', id)).toBeNull();
+      for (const id of keep)
+        expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', id)).not.toBeNull();
+      expect(await one(env.DB, 'SELECT id FROM students WHERE id=?', student)).not.toBeNull();
+      expect(await one(env.DB, 'SELECT id FROM contacts WHERE id=?', contact)).not.toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  it('purges large histories in resumable bounded batches and blocks new dependencies during deletion', async () => {
+    const id = await campaign('ready_for_review', null);
+    await statement(
+      env.DB,
+      `WITH RECURSIVE n(x) AS(SELECT 0 UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO messages(id,center_id,campaign_id,student_id,student_name,contact_id,phone,body,segments,state,logical_key) SELECT ?||x,?,?,?,'Keep student',?,'8801700000099','Test',1,'delivered',?||x FROM n`,
+      id,
+      center,
+      id,
+      student,
+      contact,
+      id,
+    ).run();
+    await statement(
+      env.DB,
+      `WITH RECURSIVE n(x) AS(SELECT 0 UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO attempts SELECT ?||x,?,?,?||x,?,'accepted' FROM n`,
+      id,
+      center,
+      id,
+      id,
+      now() - month - 1000,
+    ).run();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO campaign_transitions SELECT ?,revision FROM centers WHERE id=?',
+        id,
+        center,
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO campaign_exclusions VALUES(?,?,?,?,?)',
+        center,
+        id,
+        student,
+        'Keep student',
+        'Test',
+      ),
+      statement(env.DB, "UPDATE campaigns SET state='completed' WHERE id=?", id),
+      statement(env.DB, 'UPDATE campaigns SET finished_at=? WHERE id=?', now() - month - 1000, id),
+    ]);
+    await cleanup(env.DB);
+    expect(await one(env.DB, 'SELECT state FROM campaigns WHERE id=?', id)).toEqual({
+      state: 'purging',
+    });
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS count FROM messages WHERE campaign_id=?', id),
+    ).toEqual({ count: 1 });
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS count FROM attempts WHERE campaign_id=?', id),
+    ).toEqual({ count: 1 });
+    expect((await call(`/c/${center}/campaigns/${id}`)).status).toBe(404);
+    expect(
+      (
+        await call(`/c/${center}/campaigns/${id}/retry`, 'POST', {
+          message_ids: [uid()],
+          acknowledge_duplicate_risk: true,
+          idempotency_key: uid(),
+        })
+      ).status,
+    ).toBe(404);
+    await call(`/c/${center}/campaigns/${id}/cancel`, 'POST', {});
+    expect(await one(env.DB, 'SELECT state FROM campaigns WHERE id=?', id)).toEqual({
+      state: 'purging',
+    });
+    await expect(campaign('preparing', null, id)).rejects.toThrow('PREVIEW_CHANGED');
+    await cleanup(env.DB);
+    await cleanup(env.DB);
+    for (const table of ['messages', 'attempts', 'campaign_exclusions', 'campaign_transitions'])
+      expect(
+        await one(env.DB, `SELECT COUNT(*) AS count FROM ${table} WHERE campaign_id=?`, id),
+      ).toEqual({ count: 0 });
+    expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', id)).toBeNull();
+  });
+  it('starts a fresh retention window when delivery status changes', async () => {
+    const id = await campaign('completed', now() - month - 1000);
+    const sent = await message(id, 'accepted');
+    await statement(env.DB, "UPDATE messages SET state='delivered' WHERE id=?", sent).run();
+    const result = await one<{ finished_at: number }>(
+      env.DB,
+      'SELECT finished_at FROM campaigns WHERE id=?',
+      id,
+    );
+    expect(result?.finished_at).toBeGreaterThan(now() - 10000);
+    await cleanup(env.DB);
+    expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', id)).not.toBeNull();
+  });
+  it('removes expired dependent history before its source', async () => {
+    const source = await campaign('completed', now() - month - 2000);
+    const dependent = await campaign('completed', now() - month - 1000, source);
+    await cleanup(env.DB);
+    expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', dependent)).toBeNull();
+    expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', source)).not.toBeNull();
+    await cleanup(env.DB);
+    expect(await one(env.DB, 'SELECT id FROM campaigns WHERE id=?', source)).toBeNull();
+  });
+  it('cleans expired temporary records and inactive balance caches while dispatch is disabled', async () => {
+    const expired = uid();
+    const fresh = uid();
+    for (const [key, expiry] of [
+      [expired, now() - 1000],
+      [fresh, now() + 60000],
+    ] as const)
+      await env.DB.batch([
+        statement(
+          env.DB,
+          'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+          key,
+          userId,
+          expiry,
+          now(),
+        ),
+        statement(
+          env.DB,
+          'INSERT INTO invitations VALUES(?,?,?,?,?,?)',
+          key,
+          center,
+          userId,
+          userId,
+          expiry,
+          '[]',
+        ),
+        statement(env.DB, 'INSERT INTO throttle VALUES(?,1,?)', key, expiry),
+      ]);
+    const inactive = uid();
+    const active = uid();
+    const refreshing = uid();
+    for (const [id, enabled, lease] of [
+      [inactive, 0, 0],
+      [active, 1, 0],
+      [refreshing, 0, now() + 60000],
+    ] as const)
+      await env.DB.batch([
+        statement(
+          env.DB,
+          'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,active,created_at) VALUES(?,?,?,?,?,?)',
+          id,
+          center,
+          'fake-retention-key',
+          '["TEST"]',
+          enabled,
+          now(),
+        ),
+        statement(
+          env.DB,
+          'INSERT INTO balances(center_id,config_id,refreshing_until) VALUES(?,?,?)',
+          center,
+          id,
+          lease,
+        ),
+      ]);
+    await scheduled(bindings);
+    for (const [table, column] of [
+      ['sessions', 'token'],
+      ['invitations', 'hash'],
+      ['throttle', 'key'],
+    ] as const) {
+      expect(
+        await one(env.DB, `SELECT ${column} FROM ${table} WHERE ${column}=?`, expired),
+      ).toBeNull();
+      expect(
+        await one(env.DB, `SELECT ${column} FROM ${table} WHERE ${column}=?`, fresh),
+      ).not.toBeNull();
+    }
+    expect(
+      await one(env.DB, 'SELECT config_id FROM balances WHERE config_id=?', inactive),
+    ).toBeNull();
+    for (const id of [active, refreshing])
+      expect(
+        await one(env.DB, 'SELECT config_id FROM balances WHERE config_id=?', id),
+      ).not.toBeNull();
+    expect(await one(env.DB, 'SELECT id FROM provider_configs WHERE id=?', inactive)).toBeNull();
+    const plan = await rows<{ detail: string }>(
+      env.DB,
+      "EXPLAIN QUERY PLAN SELECT id FROM campaigns INDEXED BY campaigns_retention WHERE state IN ('completed','cancelled') AND finished_at<? ORDER BY finished_at,id LIMIT 1",
+      now() - month,
+    );
+    expect(plan.some((row) => row.detail.includes('campaigns_retention'))).toBe(true);
+  });
+  it('keeps inactive credentials referenced by a campaign until its history is removed', async () => {
+    const config = uid();
+    await statement(
+      env.DB,
+      'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,active,created_at) VALUES(?,?,?,?,0,?)',
+      config,
+      center,
+      'fake-referenced-key',
+      '["TEST"]',
+      now(),
+    ).run();
+    const id = await campaign('paused', null);
+    await statement(env.DB, 'UPDATE campaigns SET config_id=? WHERE id=?', config, id).run();
+    await cleanup(env.DB);
+    expect(await one(env.DB, 'SELECT id FROM provider_configs WHERE id=?', config)).not.toBeNull();
+    await statement(env.DB, "UPDATE campaigns SET state='cancelled' WHERE id=?", id).run();
+    await statement(
+      env.DB,
+      'UPDATE campaigns SET finished_at=? WHERE id=?',
+      now() - month - 1,
+      id,
+    ).run();
+    await cleanup(env.DB);
+    await cleanup(env.DB);
+    expect(await one(env.DB, 'SELECT id FROM provider_configs WHERE id=?', config)).toBeNull();
+  });
+  it('removes expired recovery codes and orphan claims but preserves valid underlying tokens', async () => {
+    const timestamp = now();
+    const personal = uid();
+    const assisted = uid();
+    const expired = uid();
+    const invitation = uid();
+    const expiredInvite = uid();
+    const consumed = uid();
+    for (const [hash, expiry] of [
+      [personal, null],
+      [assisted, timestamp + 60000],
+      [expired, timestamp - 1000],
+      [consumed, null],
+    ] as const)
+      await env.DB.batch([
+        statement(
+          env.DB,
+          'INSERT INTO recovery_codes(hash,user_id,expires_at) VALUES(?,?,?)',
+          hash,
+          userId,
+          expiry,
+        ),
+        statement(
+          env.DB,
+          'INSERT INTO auth_claims(hash,created_at) VALUES(?,?)',
+          hash,
+          timestamp - 10000,
+        ),
+      ]);
+    for (const [hash, expiry] of [
+      [invitation, timestamp + 60000],
+      [expiredInvite, timestamp - 1000],
+    ] as const)
+      await env.DB.batch([
+        statement(
+          env.DB,
+          'INSERT INTO invitations VALUES(?,?,?,?,?,?)',
+          hash,
+          center,
+          userId,
+          userId,
+          expiry,
+          '[]',
+        ),
+        statement(
+          env.DB,
+          'INSERT INTO auth_claims(hash,created_at) VALUES(?,?)',
+          hash,
+          timestamp - 10000,
+        ),
+      ]);
+    await statement(env.DB, 'DELETE FROM recovery_codes WHERE hash=?', consumed).run();
+    await cleanup(env.DB);
+    for (const hash of [personal, assisted])
+      expect(
+        await one(env.DB, 'SELECT hash FROM recovery_codes WHERE hash=?', hash),
+      ).not.toBeNull();
+    expect(await one(env.DB, 'SELECT hash FROM recovery_codes WHERE hash=?', expired)).toBeNull();
+    for (const hash of [personal, assisted, invitation])
+      expect(await one(env.DB, 'SELECT hash FROM auth_claims WHERE hash=?', hash)).not.toBeNull();
+    for (const hash of [expired, expiredInvite, consumed])
+      expect(await one(env.DB, 'SELECT hash FROM auth_claims WHERE hash=?', hash)).toBeNull();
+    await expect(
+      statement(
+        env.DB,
+        'INSERT INTO auth_claims(hash,created_at) VALUES(?,?)',
+        consumed,
+        now(),
+      ).run(),
+    ).rejects.toThrow('INVALID_AUTH_TOKEN');
+  });
+});
+
+describe('unchanged provider settings', () => {
+  it('does not create revisions, pause campaigns, or add audit entries for identical concurrent saves', async () => {
+    const center = uid();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+        center,
+        'Settings test',
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+    ]);
+    const input = {
+      api_key: 'fake-unchanged-settings-key',
+      sender_ids: ['09610000000'],
+      batch_size: 1,
+      interval_seconds: 2,
+    };
+    const saved = await Promise.all([
+      call(`/c/${center}/provider`, 'PUT', input),
+      call(`/c/${center}/provider`, 'PUT', input),
+    ]);
+    expect(saved.map((r) => r.status)).toEqual([200, 200]);
+    const original = await one<{ id: string }>(
+      env.DB,
+      'SELECT id FROM provider_configs WHERE center_id=? AND active=1',
+      center,
+    );
+    const revision = await one(env.DB, 'SELECT revision FROM centers WHERE id=?', center);
+    const id = uid();
+    await statement(
+      env.DB,
+      `INSERT INTO campaigns(id,center_id,name,authorizer,selection,state,revision,config_id,created_at,idempotency_key) SELECT ?,?,'Unchanged',?,'{}','ready_for_review',revision,?,?,? FROM centers WHERE id=?`,
+      id,
+      center,
+      userId,
+      original?.id,
+      now(),
+      uid(),
+      center,
+    ).run();
+    const repeated = await Promise.all([
+      call(`/c/${center}/provider`, 'PUT', input),
+      call(`/c/${center}/provider`, 'PUT', input),
+    ]);
+    expect(repeated.map((r) => r.status)).toEqual([200, 200]);
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS count FROM provider_configs WHERE center_id=?', center),
+    ).toEqual({ count: 1 });
+    expect(
+      await one(
+        env.DB,
+        "SELECT COUNT(*) AS count FROM audit WHERE center_id=? AND action='provider.replace'",
+        center,
+      ),
+    ).toEqual({ count: 1 });
+    expect(await one(env.DB, 'SELECT revision FROM centers WHERE id=?', center)).toEqual(revision);
+    expect(await one(env.DB, 'SELECT state FROM campaigns WHERE id=?', id)).toEqual({
+      state: 'ready_for_review',
+    });
+    expect((await call(`/c/${center}/provider`, 'PUT', { ...input, batch_size: 2 })).status).toBe(
+      200,
+    );
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS count FROM provider_configs WHERE center_id=?', center),
+    ).toEqual({ count: 2 });
+    expect(await one(env.DB, 'SELECT state FROM campaigns WHERE id=?', id)).toEqual({
+      state: 'needs_review',
+    });
+  });
+});
+
 describe('bounded database access', () => {
   it('removes audit entries older than seven days in indexed batches while dispatch is disabled', async () => {
     const timestamp = Date.now();

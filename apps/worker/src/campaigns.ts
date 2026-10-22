@@ -18,6 +18,7 @@ import { audit, now, one, rows, statement, uid } from './db';
 import { AppError, assert } from './errors';
 import { accessFor, digest, requirePermission, type AppEnv, type Bindings } from './security';
 import { balance, configFor, delivery, submit } from './provider';
+import { cleanup } from './cleanup';
 
 interface StoredCampaign extends Campaign {
   center_id: string;
@@ -132,7 +133,7 @@ campaigns.post('/', async (c) => {
   await c.env.DB.batch([
     statement(
       c.env.DB,
-      'INSERT INTO campaigns(id,center_id,name,authorizer,selection,revision,config_id,created_at,idempotency_key,center_name) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO campaigns(id,center_id,name,authorizer,selection,revision,config_id,created_at,idempotency_key,center_name,source_campaign_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
       id,
       a.center.id,
       input.name,
@@ -143,6 +144,7 @@ campaigns.post('/', async (c) => {
       now(),
       input.idempotency_key,
       a.center.name,
+      input.resumption_source,
     ),
     statement(
       c.env.DB,
@@ -164,7 +166,7 @@ campaigns.get('/', async (c) => {
     : [Number.MAX_SAFE_INTEGER, ''];
   const items = await rows<Campaign>(
     c.env.DB,
-    'SELECT id,name,state,created_at,scheduled_at,total,excluded,submitted,delivered,failed,unknown,skipped,reason FROM campaigns WHERE center_id=? AND (created_at<? OR (created_at=? AND id>?)) ORDER BY created_at DESC,id LIMIT 31',
+    "SELECT id,name,state,created_at,scheduled_at,total,excluded,submitted,delivered,failed,unknown,skipped,reason FROM campaigns WHERE center_id=? AND state!='purging' AND (created_at<? OR (created_at=? AND id>?)) ORDER BY created_at DESC,id LIMIT 31",
     a.center.id,
     cursor[0],
     cursor[0],
@@ -179,7 +181,7 @@ campaigns.get('/:id', async (c) => {
   const a = requirePermission(c, 'messages.read');
   const item = await one<StoredCampaign>(
     c.env.DB,
-    'SELECT * FROM campaigns WHERE center_id=? AND id=?',
+    "SELECT * FROM campaigns WHERE center_id=? AND id=? AND state!='purging'",
     a.center.id,
     c.req.param('id'),
   );
@@ -300,7 +302,7 @@ campaigns.post('/:id/cancel', async (c) => {
   await c.env.DB.batch([
     statement(
       c.env.DB,
-      "UPDATE campaigns SET state='cancelled',reason='Cancelled by staff; requests already in flight cannot be recalled.' WHERE center_id=? AND id=? AND state!='completed'",
+      "UPDATE campaigns SET state='cancelled',reason='Cancelled by staff; requests already in flight cannot be recalled.' WHERE center_id=? AND id=? AND state NOT IN ('completed','purging')",
       a.center.id,
       c.req.param('id'),
     ),
@@ -375,7 +377,7 @@ campaigns.post('/:id/retry', async (c) => {
     .parse(await c.req.json());
   const original = await one<StoredCampaign>(
     c.env.DB,
-    'SELECT * FROM campaigns WHERE center_id=? AND id=?',
+    "SELECT * FROM campaigns WHERE center_id=? AND id=? AND state!='purging'",
     a.center.id,
     c.req.param('id'),
   );
@@ -412,7 +414,7 @@ campaigns.post('/:id/retry', async (c) => {
   await c.env.DB.batch([
     statement(
       c.env.DB,
-      "INSERT INTO campaigns(id,center_id,name,authorizer,selection,state,revision,config_id,created_at,idempotency_key,center_name) VALUES(?,?,?,?,?,'ready_for_review',?,?,?,?,?)",
+      "INSERT INTO campaigns(id,center_id,name,authorizer,selection,state,revision,config_id,created_at,idempotency_key,center_name,source_campaign_id) VALUES(?,?,?,?,?,'ready_for_review',?,?,?,?,?,?)",
       id,
       a.center.id,
       `${original.name.slice(0, 145)} · Resend`,
@@ -430,6 +432,7 @@ campaigns.post('/:id/retry', async (c) => {
       now(),
       input.idempotency_key,
       a.center.name,
+      original.id,
     ),
     ...selected.map((m) =>
       statement(
@@ -499,7 +502,7 @@ campaigns.post('/:id/rebuild', async (c) => {
     statement(c.env.DB, 'DELETE FROM jobs WHERE id=?', original.id),
     statement(
       c.env.DB,
-      'INSERT INTO campaigns(id,center_id,name,authorizer,selection,revision,config_id,created_at,idempotency_key,center_name) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      'INSERT INTO campaigns(id,center_id,name,authorizer,selection,revision,config_id,created_at,idempotency_key,center_name,source_campaign_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
       id,
       a.center.id,
       original.name,
@@ -510,6 +513,7 @@ campaigns.post('/:id/rebuild', async (c) => {
       now(),
       input.idempotency_key,
       a.center.name,
+      original.id,
     ),
     statement(
       c.env.DB,
@@ -1063,11 +1067,7 @@ export async function checkMessage(env: Bindings, id: string, manual = false): P
   ]);
 }
 export async function scheduled(env: Bindings): Promise<void> {
-  await statement(
-    env.DB,
-    'DELETE FROM audit WHERE id IN (SELECT id FROM audit WHERE created_at<? ORDER BY created_at LIMIT 1000)',
-    now() - 7 * 86400000,
-  ).run();
+  await cleanup(env.DB);
   if (env.DISPATCH_ENABLED !== 'true') return;
   const stale = await rows<{ id: string; campaign_id: string; center_id: string }>(
     env.DB,
@@ -1096,21 +1096,4 @@ export async function scheduled(env: Bindings): Promise<void> {
     now(),
   );
   for (const message of checks) await checkMessage(env, message.id);
-  await env.DB.batch([
-    statement(
-      env.DB,
-      'DELETE FROM sessions WHERE token IN (SELECT token FROM sessions WHERE expires_at<? LIMIT 100)',
-      now(),
-    ),
-    statement(
-      env.DB,
-      'DELETE FROM throttle WHERE key IN (SELECT key FROM throttle WHERE expires_at<? LIMIT 100)',
-      now(),
-    ),
-    statement(
-      env.DB,
-      'DELETE FROM invitations WHERE hash IN (SELECT hash FROM invitations WHERE expires_at<? LIMIT 100)',
-      now(),
-    ),
-  ]);
 }

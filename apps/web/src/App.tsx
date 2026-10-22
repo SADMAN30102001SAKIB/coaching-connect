@@ -287,6 +287,7 @@ export default function App() {
                           <Link to="/security">
                             <ShieldCheck size={22} />
                             {t('Account security')}
+                            <ChevronDown size={16} />
                           </Link>
                           <button
                             onClick={() => {
