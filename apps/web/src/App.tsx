@@ -17,7 +17,14 @@ import {
   WifiOff,
 } from 'lucide-react';
 import type { Campaign, Context, Session } from '@coaching/domain';
-import { ApiError, CenterContext, request, setUnauthorizedHandler, useCenter, useData } from './api';
+import {
+  ApiError,
+  CenterContext,
+  request,
+  setUnauthorizedHandler,
+  useCenter,
+  useData,
+} from './api';
 import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
 import { ThemePicker } from './components/ThemePicker';
