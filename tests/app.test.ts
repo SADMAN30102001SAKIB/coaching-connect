@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { env } from 'cloudflare:workers';
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { beforeAll, describe, expect, inject, it } from 'vitest';
+import { beforeAll, describe, expect, inject, it, vi } from 'vitest';
 import {
   estimateSegments,
   formatScore,
@@ -1036,6 +1036,58 @@ describe('preserving academic relationships', () => {
   });
 });
 describe('bounded database access', () => {
+  it('removes audit entries older than seven days in indexed batches while dispatch is disabled', async () => {
+    const timestamp = Date.now();
+    const cutoff = timestamp - 7 * 86400000;
+    const target = uid();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(timestamp);
+    try {
+      await statement(
+        env.DB,
+        `WITH RECURSIVE n(x) AS(SELECT 0 UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO audit SELECT ?||x,CASE x%3 WHEN 0 THEN NULL WHEN 1 THEN ? ELSE ? END,?,'account.assisted_recovery:test',?,? FROM n`,
+        target,
+        centerId,
+        otherCenter,
+        userId,
+        target,
+        cutoff - 1,
+      ).run();
+      await env.DB.batch(
+        [cutoff, cutoff + 1, timestamp].map((createdAt) =>
+          statement(
+            env.DB,
+            'INSERT INTO audit VALUES(?,?,?,?,?,?)',
+            uid(),
+            centerId,
+            userId,
+            'provider.replace',
+            target,
+            createdAt,
+          ),
+        ),
+      );
+      const plan = await rows<{ detail: string }>(
+        env.DB,
+        'EXPLAIN QUERY PLAN SELECT id FROM audit WHERE created_at<? ORDER BY created_at LIMIT 1000',
+        cutoff,
+      );
+      expect(plan.some((row) => row.detail.includes('audit_created_at'))).toBe(true);
+      await scheduled(bindings);
+      expect(
+        await one(env.DB, 'SELECT COUNT(*) AS count FROM audit WHERE target=?', target),
+      ).toEqual({ count: 4 });
+      await scheduled(bindings);
+      expect(
+        await one(env.DB, 'SELECT COUNT(*) AS count FROM audit WHERE target=?', target),
+      ).toEqual({ count: 3 });
+      await scheduled(bindings);
+      expect(
+        await one(env.DB, 'SELECT COUNT(*) AS count FROM audit WHERE target=?', target),
+      ).toEqual({ count: 3 });
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it('uses the student prefix index instead of scanning unrelated records', async () => {
     await statement(
       env.DB,

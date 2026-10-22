@@ -121,6 +121,8 @@ Replacing provider credentials or transferring ownership requires a recent login
 
 ## When something goes wrong
 
+Audit history keeps the last seven days. The existing every-minute background task deletes older entries in batches of up to 1,000, even when SMS dispatch is disabled. This includes recovery/security audit notes, not student records, results, or SMS history. A backlog may take several runs to clear.
+
 **Stop sending:** pause the queue consumer in Cloudflare for immediate intervention. Set `DISPATCH_ENABLED="false"` in the source and release through Git to stop background dispatch. Set `SMS_MODE="disabled"` too to block provider access/new send approvals. Suspending a center blocks its access and further authorized batches. Already-submitted SMS cannot be recalled.
 
 **Resume carefully:** investigate paused campaigns, unknown sends, and the failed queue. Do not blindly replay failed queue messages.

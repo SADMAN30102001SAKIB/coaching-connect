@@ -1063,6 +1063,11 @@ export async function checkMessage(env: Bindings, id: string, manual = false): P
   ]);
 }
 export async function scheduled(env: Bindings): Promise<void> {
+  await statement(
+    env.DB,
+    'DELETE FROM audit WHERE id IN (SELECT id FROM audit WHERE created_at<? ORDER BY created_at LIMIT 1000)',
+    now() - 7 * 86400000,
+  ).run();
   if (env.DISPATCH_ENABLED !== 'true') return;
   const stale = await rows<{ id: string; campaign_id: string; center_id: string }>(
     env.DB,
