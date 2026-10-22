@@ -20,6 +20,7 @@ import type { Campaign, Context, Session } from '@coaching/domain';
 import { ApiError, CenterContext, request, useCenter, useData } from './api';
 import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
+import { ThemePicker } from './components/ThemePicker';
 import { useLocale } from './i18n';
 import { Alert, Badge, Button, Empty, Loading, Page, State, dateTime } from './ui';
 
@@ -107,14 +108,17 @@ export default function App() {
               {t(user.platform ? 'Platform' : 'Welcome back')}, {user.name}
             </h1>
           </div>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              void signOut();
-            }}
-          >
-            {t('Sign out')}
-          </Button>
+          <div className="actions">
+            <ThemePicker />
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void signOut();
+              }}
+            >
+              {t('Sign out')}
+            </Button>
+          </div>
         </header>
         <Alert error={accountError} />
         {user.platform ? (
@@ -229,6 +233,7 @@ export default function App() {
               <ChevronDown size={16} />
             </label>
             <div className="topbar-right">
+              <ThemePicker />
               <Button variant="ghost" onClick={toggle}>
                 {locale === 'en' ? 'বাংলা' : 'English'}
               </Button>

@@ -12,6 +12,7 @@ Multi-center coaching results and personalized SMS, built as one Cloudflare Work
 - Real personalized previews, exclusion reasons, immediate or scheduled approval, cancellation, cached per-center balance, message history and known-ID delivery checks.
 - Durable background work, duplicate suppression, permission/consent checks before sending and safe pauses when source data or provider credentials change. Refresh only unsent recipients without replaying submitted ones.
 - Responsive English/Bangla interface, installable PWA manifest/icons, keyboard-accessible dialogs and an offline page. Private records are **not** cached for offline use.
+- Light, Dark and System appearance from the theme icon on the sign-in screen or top bar. The choice is saved on this browser, synchronizes between tabs, and follows device changes in System mode. It does not change center settings or make server requests.
 
 No import, OCR, grading engine, weighted totals, public signup or authentication SMS is included, as agreed.
 

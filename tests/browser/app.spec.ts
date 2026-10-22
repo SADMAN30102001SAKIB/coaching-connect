@@ -4,6 +4,14 @@ import AxeBuilder from '@axe-core/playwright';
 test('phone login, center onboarding and responsive academic workflow', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  const checkAccessibility = async () => {
+    const result = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(
+      result.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
+    ).toEqual([]);
+  };
   const phone = `017${String(Date.now() % 100000000).padStart(8, '0')}`;
   const adminPassword = 'a long browser test password 2026';
   const bootstrapPassword = 'a long platform test password 2026';
@@ -51,12 +59,7 @@ test('phone login, center onboarding and responsive academic workflow', async ({
     await page.locator('body').evaluate((body) => body.clientWidth),
   );
   await page.screenshot({ path: `test-results/${info.project.name}-home.png`, fullPage: true });
-  const accessibility = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
-    .analyze();
-  expect(
-    accessibility.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
-  ).toEqual([]);
+  await checkAccessibility();
   const center = invitation.id;
   const subjectResponse = await page.request.post(`/api/c/${center}/catalog`, {
     data: { kind: 'subject', name: 'Physics' },
@@ -93,6 +96,7 @@ test('phone login, center onboarding and responsive academic workflow', async ({
   await page.getByRole('link', { name: 'Enter marks' }).click();
   await page.getByLabel('Result status for Ayesha Rahman').selectOption('scored');
   await page.getByLabel('Marks for Ayesha Rahman').fill('63.5');
+  await checkAccessibility();
   await page.getByRole('button', { name: 'Save marks' }).click();
   await expect(page.getByLabel('Marks for Ayesha Rahman')).toHaveValue('63.5');
   await expect(page.getByRole('button', { name: 'Save marks' })).toBeDisabled();
@@ -113,12 +117,14 @@ test('phone login, center onboarding and responsive academic workflow', async ({
   await page.goto(`/messages/new?exam=${examId}`);
   await page.getByLabel('Name', { exact: true }).fill('October family update');
   await page.getByLabel('Message', { exact: true }).fill('{{student_name}}\n{{results_summary}}');
+  await checkAccessibility();
   await page.getByRole('button', { name: 'Prepare preview' }).click();
   await expect(page.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 20000 });
   await expect(
     page.getByText('Ayesha Rahman\nOctober assessment · Physics: 63.5/75', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Confirm sending', exact: true }).click();
+  await checkAccessibility();
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Confirm sending', exact: true })

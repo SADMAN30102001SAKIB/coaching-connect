@@ -30,7 +30,7 @@ export const senderSchema = z
   )
   .min(1)
   .max(10);
-export async function providerJson(
+async function providerJson(
   path: 'get-balance' | 'send-bulk-sms' | 'sms-check',
   config: ProviderConfig,
   body?: Record<string, unknown>,

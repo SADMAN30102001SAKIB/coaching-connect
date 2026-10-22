@@ -14,6 +14,7 @@
     {
       "binding": "DB",
       "database_name": "coaching-connect",
+      "database_id": "fe70faaf-926b-4d60-a29e-44dcf4fba9ae",
       "migrations_dir": "packages/db/migrations",
     },
   ],

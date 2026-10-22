@@ -54,7 +54,7 @@ interface ResultRow {
 }
 export const campaigns = new Hono<AppEnv>();
 const messageColumns = 'id,student_name,phone,body,state,provider_id,reason,segments';
-export async function createJob(
+async function createJob(
   db: D1Database,
   center: string,
   campaign: string,

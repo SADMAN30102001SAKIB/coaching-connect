@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { LocaleProvider } from './i18n';
+import { ThemeProvider } from './theme';
 import { AppFailure } from './components/AppFailure';
 import './styles.css';
 
@@ -17,9 +18,11 @@ createRoot(root).render(
   <React.StrictMode>
     <QueryClientProvider client={client}>
       <LocaleProvider>
-        <AppFailure>
-          <RouterProvider router={router} />
-        </AppFailure>
+        <ThemeProvider>
+          <AppFailure>
+            <RouterProvider router={router} />
+          </AppFailure>
+        </ThemeProvider>
       </LocaleProvider>
     </QueryClientProvider>
   </React.StrictMode>,

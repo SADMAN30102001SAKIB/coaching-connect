@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const bn: Record<string, string> = {
+  Appearance: 'থিম',
+  Light: 'হালকা',
+  Dark: 'ডার্ক',
+  System: 'ডিভাইস অনুযায়ী',
   'Current class': 'বর্তমান শ্রেণি',
   'Current session': 'বর্তমান সেশন',
   Skipped: 'বাদ দেওয়া হয়েছে',

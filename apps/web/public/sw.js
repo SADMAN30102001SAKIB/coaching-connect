@@ -6,7 +6,7 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request).catch(
       () =>
         new Response(
-          '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>You are offline</title><body style="font:18px system-ui;padding:32px;max-width:480px;margin:auto"><h1>You are offline</h1><p>Reconnect to view records or save changes. No SMS will be sent from this device while offline.</p><button onclick="location.reload()">Try again</button></body></html>',
+          '<!doctype html><html lang="en" style="color-scheme:light dark"><meta name="viewport" content="width=device-width"><title>You are offline</title><script>try{const mode=localStorage.getItem("theme");if(mode==="light"||mode==="dark")document.documentElement.style.colorScheme=mode}catch{}</script><body style="font:18px system-ui;padding:32px;max-width:480px;margin:auto;background:Canvas;color:CanvasText"><h1>You are offline</h1><p>Reconnect to view records or save changes. No SMS will be sent from this device while offline.</p><button onclick="location.reload()">Try again</button></body></html>',
           { headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' } },
         ),
     ),

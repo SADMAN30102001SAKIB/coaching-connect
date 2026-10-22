@@ -1,0 +1,4 @@
+{
+  "entry": ["apps/web/public/sw.js", "apps/web/public/theme.js"],
+  "ignoreUnresolvedImports": ["/theme.js"]
+}

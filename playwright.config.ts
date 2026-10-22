@@ -20,5 +20,10 @@ export default defineConfig({
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['Pixel 7'], defaultBrowserType: 'chromium' } },
+    { name: 'desktop-dark', use: { ...devices['Desktop Chrome'], colorScheme: 'dark' } },
+    {
+      name: 'mobile-dark',
+      use: { ...devices['Pixel 7'], defaultBrowserType: 'chromium', colorScheme: 'dark' },
+    },
   ],
 });

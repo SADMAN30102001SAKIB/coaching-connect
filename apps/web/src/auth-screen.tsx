@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, MessageSquareText, ShieldCheck } from 'lucide-react';
 import { formText, request } from './api';
 import { useLocale } from './i18n';
+import { ThemePicker } from './components/ThemePicker';
 import { Alert, Button, Field } from './ui';
 
 export function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
@@ -142,9 +143,12 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
         </p>
       </aside>
       <section className="auth-main">
-        <Button className="language-button" variant="ghost" onClick={toggle}>
-          {locale === 'en' ? 'বাংলা' : 'English'}
-        </Button>
+        <div className="auth-tools">
+          <ThemePicker />
+          <Button variant="ghost" onClick={toggle}>
+            {locale === 'en' ? 'বাংলা' : 'English'}
+          </Button>
+        </div>
         <div className="auth-content">
           {codes.length ? (
             <RecoveryCodes codes={codes} onDone={onDone} />
