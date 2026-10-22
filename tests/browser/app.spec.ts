@@ -60,6 +60,22 @@ test('phone login, center onboarding and responsive academic workflow', async ({
   );
   await page.screenshot({ path: `test-results/${info.project.name}-home.png`, fullPage: true });
   await checkAccessibility();
+  if (!info.project.use.isMobile) {
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 1280, height: 480 });
+    const sidebar = page.locator('.sidebar');
+    const signOut = sidebar.getByRole('button', { name: 'Sign out', exact: true });
+    await expect(sidebar).toHaveCSS('overflow-y', 'auto');
+    await sidebar.hover();
+    await page.mouse.wheel(0, 1000);
+    await expect(signOut).toBeInViewport();
+    await expect(sidebar.getByRole('link', { name: 'Account security' })).toBeInViewport();
+    await expect.poll(() => sidebar.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await page.screenshot({ path: `test-results/${info.project.name}-sidebar.png` });
+    await sidebar.evaluate((element) => element.scrollTo(0, 0));
+    if (viewport) await page.setViewportSize(viewport);
+  }
   const center = invitation.id;
   const subjectResponse = await page.request.post(`/api/c/${center}/catalog`, {
     data: { kind: 'subject', name: 'Physics' },

@@ -860,6 +860,7 @@ dialog form > p {
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
+  overflow-y: auto;
   width: 236px;
   background: var(--surface);
   border-right: 1px solid var(--border);
