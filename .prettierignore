@@ -1,0 +1,7 @@
+pnpm-lock.yaml
+worker-configuration.d.ts
+dist
+.wrangler
+node_modules
+APIDocs.txt
+docs/planning

@@ -1,0 +1,5 @@
+{
+  "name": "@coaching/worker",
+  "private": true,
+  "type": "module"
+}

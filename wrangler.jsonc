@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "coaching-connect",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "coaching-connect",
+      "migrations_dir": "packages/db/migrations",
+    },
+  ],
+  "queues": {
+    "producers": [{ "binding": "JOBS", "queue": "coaching-sms" }],
+    "consumers": [
+      {
+        "queue": "coaching-sms",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "max_concurrency": 1,
+        "dead_letter_queue": "coaching-sms-failed",
+      },
+    ],
+  },
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": { "SMS_MODE": "disabled", "DISPATCH_ENABLED": "true" },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "limits": { "cpu_ms": 3000 },
+}

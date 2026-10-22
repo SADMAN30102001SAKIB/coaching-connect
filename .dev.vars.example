@@ -1,0 +1,2 @@
+BOOTSTRAP_TOKEN="replace-with-a-random-value-of-at-least-32-characters"
+SMS_MODE="mock"

@@ -1,0 +1,17 @@
+ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE recovery_codes ADD COLUMN expires_at INTEGER;
+DROP TRIGGER auth_claim_valid;
+CREATE TRIGGER auth_claim_valid BEFORE INSERT ON auth_claims WHEN NOT EXISTS(SELECT 1 FROM invitations WHERE hash=NEW.hash AND expires_at>NEW.created_at) AND NOT EXISTS(SELECT 1 FROM recovery_codes WHERE hash=NEW.hash AND (expires_at IS NULL OR expires_at>NEW.created_at)) BEGIN SELECT RAISE(ABORT,'INVALID_AUTH_TOKEN'); END;
+ALTER TABLE centers ADD COLUMN students_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE centers ADD COLUMN groups_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE centers ADD COLUMN exams_count INTEGER NOT NULL DEFAULT 0;
+UPDATE centers SET students_count=(SELECT COUNT(*) FROM students WHERE center_id=centers.id AND active=1),groups_count=(SELECT COUNT(*) FROM catalog WHERE center_id=centers.id AND kind='group' AND active=1),exams_count=(SELECT COUNT(*) FROM exams WHERE center_id=centers.id AND active=1);
+CREATE TRIGGER student_count_insert AFTER INSERT ON students BEGIN UPDATE centers SET students_count=students_count+NEW.active WHERE id=NEW.center_id; END;
+CREATE TRIGGER student_count_update AFTER UPDATE OF active ON students WHEN OLD.active!=NEW.active BEGIN UPDATE centers SET students_count=students_count+NEW.active-OLD.active WHERE id=NEW.center_id; END;
+CREATE TRIGGER group_count_insert AFTER INSERT ON catalog WHEN NEW.kind='group' BEGIN UPDATE centers SET groups_count=groups_count+NEW.active WHERE id=NEW.center_id; END;
+CREATE TRIGGER group_count_update AFTER UPDATE OF active ON catalog WHEN OLD.kind='group' AND OLD.active!=NEW.active BEGIN UPDATE centers SET groups_count=groups_count+NEW.active-OLD.active WHERE id=NEW.center_id; END;
+CREATE TRIGGER exam_count_insert AFTER INSERT ON exams BEGIN UPDATE centers SET exams_count=exams_count+NEW.active WHERE id=NEW.center_id; END;
+CREATE TRIGGER exam_count_update AFTER UPDATE OF active ON exams WHEN OLD.active!=NEW.active BEGIN UPDATE centers SET exams_count=exams_count+NEW.active-OLD.active WHERE id=NEW.center_id; END;
+CREATE INDEX students_active_id ON students(center_id,active,id);
+CREATE INDEX exams_name ON exams(center_id,active,name,id);
+CREATE INDEX messages_stale ON messages(state,submitted_at,id);
