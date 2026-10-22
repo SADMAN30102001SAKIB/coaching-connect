@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react';
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,7 +17,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import type { Campaign, Context, Session } from '@coaching/domain';
-import { ApiError, CenterContext, request, useCenter, useData } from './api';
+import { ApiError, CenterContext, request, setUnauthorizedHandler, useCenter, useData } from './api';
 import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
 import { ThemePicker } from './components/ThemePicker';
@@ -65,6 +65,14 @@ export default function App() {
     queryFn: () => request<Context>(`/c/${centerId ?? ''}/context`),
     enabled: Boolean(centerId),
   });
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      client.setQueryData(['session'], null);
+      client.clear();
+      void navigate('/');
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [client, navigate]);
   const complete = () => {
     history.replaceState(null, '', '/');
     void client.invalidateQueries({ queryKey: ['session'] });
@@ -92,10 +100,12 @@ export default function App() {
     if (!window.confirm(t('Sign out? Unsaved changes on this page will be lost.'))) return;
     try {
       await request('/auth/logout', 'POST', {});
-      client.clear();
-      void navigate('/');
     } catch (error) {
       setAccountError(error);
+    } finally {
+      client.setQueryData(['session'], null);
+      client.clear();
+      void navigate('/');
     }
   };
   if (!centerId || !context.data)

@@ -47,7 +47,7 @@ async function providerJson(
       },
       ...(body ? { body: JSON.stringify({ api_key: config.api_key, ...body }) } : {}),
       signal: AbortSignal.timeout(15000),
-      redirect: 'error',
+      redirect: 'manual',
     });
     upstreamStatus = response.status;
     assert(

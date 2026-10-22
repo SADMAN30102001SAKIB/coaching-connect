@@ -17,6 +17,11 @@ export class ApiError extends Error {
     super(message);
   }
 }
+let unauthorizedHandler: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
+
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   let response: Response;
   try {
@@ -36,6 +41,16 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
   const value: unknown = await response.json();
   if (!response.ok) {
     const data = value as { error?: { message?: string; code?: string; requestId?: string } };
+    if (
+      response.status === 401 &&
+      !path.startsWith('/auth/login') &&
+      !path.startsWith('/auth/session') &&
+      !path.startsWith('/auth/invitation') &&
+      !path.startsWith('/auth/recover') &&
+      !path.startsWith('/auth/bootstrap')
+    ) {
+      unauthorizedHandler?.();
+    }
     throw new ApiError(
       data.error?.message ?? 'This request could not finish. Reload and try again.',
       response.status,
