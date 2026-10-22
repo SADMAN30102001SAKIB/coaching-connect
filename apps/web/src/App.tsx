@@ -275,11 +275,20 @@ export default function App() {
                   <Route path="students/*" element={<StudentPages />} />
                   <Route path="exams/*" element={<ExamPages />} />
                   <Route path="messages/*" element={<MessagePages />} />
-                  <Route path="groups/*" element={<ManagePages section="group" />} />
-                  <Route path="academic/*" element={<ManagePages section="academic" />} />
-                  <Route path="templates/*" element={<ManagePages section="templates" />} />
-                  <Route path="staff/*" element={<ManagePages section="staff" />} />
-                  <Route path="settings" element={<ManagePages section="settings" />} />
+                  <Route path="groups/*" element={<ManagePages key="group" section="group" />} />
+                  <Route
+                    path="academic/*"
+                    element={<ManagePages key="academic" section="academic" />}
+                  />
+                  <Route
+                    path="templates/*"
+                    element={<ManagePages key="templates" section="templates" />}
+                  />
+                  <Route path="staff/*" element={<ManagePages key="staff" section="staff" />} />
+                  <Route
+                    path="settings"
+                    element={<ManagePages key="settings" section="settings" />}
+                  />
                   <Route path="security" element={<Security />} />
                   <Route
                     path="platform"

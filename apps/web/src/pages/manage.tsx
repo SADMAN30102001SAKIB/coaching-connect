@@ -37,15 +37,15 @@ export default function ManagePages({
 }) {
   switch (section) {
     case 'group':
-      return <CatalogPage groups />;
+      return <CatalogPage key="group" groups />;
     case 'academic':
-      return <CatalogPage />;
+      return <CatalogPage key="academic" />;
     case 'templates':
-      return <Templates />;
+      return <Templates key="templates" />;
     case 'staff':
-      return <Staff />;
+      return <Staff key="staff" />;
     case 'settings':
-      return <SettingsPage />;
+      return <SettingsPage key="settings" />;
   }
 }
 function CatalogPage({ groups = false }: { groups?: boolean }) {
