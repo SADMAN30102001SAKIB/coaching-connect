@@ -649,7 +649,6 @@ async function prepare(env: Bindings, campaign: StoredCampaign, input: CampaignI
         subject_name: first.subject_name,
         marks: first.score === null ? first.status : formatScore(first.score),
         full_marks: formatScore(first.maximum),
-        status: first.status,
         results_summary: scores
           .map((r) => {
             const score =

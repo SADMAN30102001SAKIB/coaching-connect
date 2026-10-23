@@ -7,7 +7,10 @@ import {
   templateScope,
   renderTemplate,
   variables,
+  type Catalog,
+  type Role,
   type Student,
+  type Template,
 } from '@coaching/domain';
 import { now, one, rows, statement, uid } from './db';
 import { assert } from './errors';
@@ -137,9 +140,128 @@ records.patch('/catalog/:id', async (c) => {
     c.req.param('id'),
   );
 });
-records.get('/students', (c) => {
+records.delete('/catalog/:id', async (c) => {
+  const id = c.req.param('id');
+  const item = await one<Catalog>(
+    c.env.DB,
+    'SELECT * FROM catalog WHERE center_id=? AND id=?',
+    c.get('access').center.id,
+    id,
+  );
+  assert(item, 'NOT_FOUND', 'This item is unavailable.', 404);
+  const a = requirePermission(c, `${item.kind === 'group' ? 'groups' : 'academic'}.archive`);
+
+  if (item.kind === 'subject') {
+    const paper = await one<{ count: number }>(
+      c.env.DB,
+      'SELECT COUNT(*) AS count FROM papers WHERE center_id=? AND subject_id=?',
+      a.center.id,
+      id,
+    );
+    assert(
+      !paper || paper.count === 0,
+      'SUBJECT_IN_USE',
+      'Cannot delete this subject because it is used in exams. Remove it from exam papers first.',
+      422,
+    );
+    await statement(
+      c.env.DB,
+      'DELETE FROM catalog WHERE center_id=? AND id=?',
+      a.center.id,
+      id,
+    ).run();
+  } else {
+    await c.env.DB.batch([
+      statement(
+        c.env.DB,
+        'DELETE FROM group_members WHERE center_id=? AND group_id=?',
+        a.center.id,
+        id,
+      ),
+      statement(c.env.DB, 'DELETE FROM catalog WHERE center_id=? AND id=?', a.center.id, id),
+    ]);
+  }
+
+  return c.json({ id });
+});
+records.get('/students', async (c) => {
   const a = requirePermission(c, 'students.read');
-  return namedPage(c, 'SELECT * FROM students WHERE center_id=? AND active=1', [a.center.id]);
+  const groupId = c.req.query('group_id');
+  const groups = await rows<{ id: string; name: string; count: number }>(
+    c.env.DB,
+    `SELECT g.id, g.name, COUNT(DISTINCT gm.student_id) AS count
+     FROM catalog g
+     JOIN group_members gm ON gm.center_id=g.center_id AND gm.group_id=g.id AND gm.left_at IS NULL
+     JOIN students s ON s.center_id=gm.center_id AND s.id=gm.student_id AND s.active=1
+     WHERE g.center_id=? AND g.kind='group' AND g.active=1
+     GROUP BY g.id, g.name
+     ORDER BY g.name`,
+    a.center.id,
+  );
+  const unassigned = await one<{ count: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS count
+     FROM students s
+     WHERE s.center_id=? AND s.active=1
+       AND NOT EXISTS (
+         SELECT 1 FROM group_members gm
+         JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group' AND g.active=1
+         WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL
+       )`,
+    a.center.id,
+  );
+  if (unassigned && unassigned.count > 0 && groups.length > 0) {
+    groups.push({ id: 'unassigned', name: 'No group', count: unassigned.count });
+  }
+
+  const baseSql = `SELECT s.*,
+    (SELECT GROUP_CONCAT(g.name, ', ')
+     FROM group_members gm
+     JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
+     WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL) AS group_name
+    FROM students s
+    WHERE s.center_id=? AND s.active=1`;
+
+  let sql = baseSql;
+  const args: unknown[] = [a.center.id];
+
+  if (groupId === 'unassigned') {
+    sql += ` AND NOT EXISTS (
+      SELECT 1 FROM group_members gm
+      JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group' AND g.active=1
+      WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL
+    )`;
+  } else if (groupId) {
+    sql += ` AND EXISTS (
+      SELECT 1 FROM group_members gm
+      WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.group_id=? AND gm.left_at IS NULL
+    )`;
+    args.push(groupId);
+  }
+
+  const q = (c.req.query('q') ?? '').trim().slice(0, 160);
+  const cursor = c.req.query('cursor');
+  const after = cursor
+    ? z.tuple([z.string().max(160), z.uuid()]).parse(JSON.parse(cursor))
+    : ['', ''];
+  const items = await rows<Student>(
+    c.env.DB,
+    `${sql} AND s.name>=? AND s.name<? AND (s.name>? OR (s.name=? AND s.id>?)) ORDER BY s.name,s.id LIMIT 51`,
+    ...args,
+    q,
+    `${q}\uffff`,
+    after[0],
+    after[0],
+    after[1],
+  );
+  const more = items.length > 50;
+  if (more) items.pop();
+  const last = items.at(-1);
+  return c.json({
+    items,
+    next: more && last ? JSON.stringify([last.name, last.id]) : null,
+    groups,
+  });
 });
 const studentSchema = z.object({
   name: nameSchema,
@@ -148,7 +270,6 @@ const studentSchema = z.object({
     .array(
       z.object({
         phone: phoneSchema,
-        label: z.string().trim().max(160).default(''),
         audience: z.enum(['student', 'guardian']),
         permitted: z.boolean().default(true),
       }),
@@ -168,7 +289,7 @@ records.get('/students/:id', async (c) => {
   const result = await c.env.DB.batch([
     statement(
       c.env.DB,
-      'SELECT ct.id,ct.phone,ct.suppressed,sc.label,sc.audience,sc.permitted FROM student_contacts sc JOIN contacts ct ON ct.center_id=sc.center_id AND ct.id=sc.contact_id WHERE sc.center_id=? AND sc.student_id=?',
+      'SELECT ct.id,ct.phone,ct.suppressed,sc.audience,sc.permitted FROM student_contacts sc JOIN contacts ct ON ct.center_id=sc.center_id AND ct.id=sc.contact_id WHERE sc.center_id=? AND sc.student_id=?',
       a.center.id,
       item.id,
     ),
@@ -274,10 +395,9 @@ async function saveStudent(c: ApiContext, editing: boolean) {
     batch.push(
       statement(
         c.env.DB,
-        'INSERT OR IGNORE INTO student_contacts SELECT ?,?,id,?,?,? FROM contacts WHERE center_id=? AND phone=?',
+        'INSERT OR IGNORE INTO student_contacts SELECT ?,?,id,?,? FROM contacts WHERE center_id=? AND phone=?',
         a.center.id,
         id,
-        contact.label,
         contact.audience,
         Number(contact.permitted),
         a.center.id,
@@ -303,16 +423,57 @@ records.post('/students', (c) => saveStudent(c, false));
 records.put('/students/:id', (c) => saveStudent(c, true));
 records.delete('/students/:id', async (c) => {
   const a = requirePermission(c, 'students.archive');
-  return changed(
-    c,
-    await statement(
-      c.env.DB,
-      'UPDATE students SET active=0,version=version+1 WHERE center_id=? AND id=? AND active=1',
-      a.center.id,
-      c.req.param('id'),
-    ).run(),
-    c.req.param('id'),
+  const studentId = c.req.param('id');
+  const student = await one<Student>(
+    c.env.DB,
+    'SELECT * FROM students WHERE center_id=? AND id=?',
+    a.center.id,
+    studentId,
   );
+  assert(student, 'NOT_FOUND', 'This student is unavailable.', 404);
+
+  await c.env.DB.batch([
+    statement(
+      c.env.DB,
+      'DELETE FROM results WHERE center_id=? AND student_id=?',
+      a.center.id,
+      studentId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM participants WHERE center_id=? AND student_id=?',
+      a.center.id,
+      studentId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM group_members WHERE center_id=? AND student_id=?',
+      a.center.id,
+      studentId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM student_contacts WHERE center_id=? AND student_id=?',
+      a.center.id,
+      studentId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM messages WHERE center_id=? AND student_id=?',
+      a.center.id,
+      studentId,
+    ),
+    statement(c.env.DB, 'DELETE FROM students WHERE center_id=? AND id=?', a.center.id, studentId),
+  ]);
+
+  await statement(
+    c.env.DB,
+    'DELETE FROM contacts WHERE center_id=? AND id NOT IN (SELECT contact_id FROM student_contacts WHERE center_id=?)',
+    a.center.id,
+    a.center.id,
+  ).run();
+
+  return c.json({ id: studentId });
 });
 records.get('/groups/:id/members', async (c) => {
   const a = requirePermission(c, 'groups.read');
@@ -361,6 +522,24 @@ records.patch('/templates/:id', async (c) => {
     ).run(),
     c.req.param('id'),
   );
+});
+records.delete('/templates/:id', async (c) => {
+  const a = requirePermission(c, 'templates.archive');
+  const id = c.req.param('id');
+  const template = await one<Template>(
+    c.env.DB,
+    'SELECT * FROM templates WHERE center_id=? AND id=?',
+    a.center.id,
+    id,
+  );
+  assert(template, 'NOT_FOUND', 'This template is unavailable.', 404);
+  await statement(
+    c.env.DB,
+    'DELETE FROM templates WHERE center_id=? AND id=?',
+    a.center.id,
+    id,
+  ).run();
+  return c.json({ id });
 });
 records.get('/roles', async (c) => {
   const a = requireAdmin(c);
@@ -414,6 +593,31 @@ records.patch('/roles/:id', async (c) => {
     ).run(),
     c.req.param('id'),
   );
+});
+records.delete('/roles/:id', async (c) => {
+  const a = requireAdmin(c);
+  const id = c.req.param('id');
+  const role = await one<Role>(
+    c.env.DB,
+    'SELECT * FROM roles WHERE center_id=? AND id=?',
+    a.center.id,
+    id,
+  );
+  assert(role, 'NOT_FOUND', 'This role is unavailable.', 404);
+  const assigned = await one<{ count: number }>(
+    c.env.DB,
+    'SELECT COUNT(*) AS count FROM member_roles WHERE center_id=? AND role_id=?',
+    a.center.id,
+    id,
+  );
+  assert(
+    !assigned || assigned.count === 0,
+    'ROLE_IN_USE',
+    'Cannot delete this role because staff members are currently assigned to it. Reassign them first.',
+    422,
+  );
+  await statement(c.env.DB, 'DELETE FROM roles WHERE center_id=? AND id=?', a.center.id, id).run();
+  return c.json({ id });
 });
 records.get('/staff', async (c) => {
   const a = requireAdmin(c);

@@ -27,15 +27,25 @@ export default function StudentPages() {
     </Routes>
   );
 }
+interface StudentsData extends Paged<Student> {
+  groups?: { id: string; name: string; count: number }[];
+}
 function Students() {
   const { permissions } = useCenter();
   const { t } = useLocale();
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState('');
-  const students = useData<Paged<Student>>(
-    `/students?q=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`,
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const students = useData<StudentsData>(
+    `/students?q=${encodeURIComponent(query)}&group_id=${encodeURIComponent(selectedGroup)}&cursor=${encodeURIComponent(cursor)}`,
   );
+
+  const handleGroupChange = (gid: string) => {
+    setSelectedGroup(gid);
+    setCursor('');
+  };
+
   return (
     <Page
       eyebrow="YOUR COMMUNITY"
@@ -69,6 +79,31 @@ function Students() {
           {t('Search')}
         </Button>
       </form>
+      {(students.data?.groups?.length ?? 0) > 0 && (
+        <div className="tabs group-tabs" role="tablist" aria-label={t('Filter by group')}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!selectedGroup}
+            className={!selectedGroup ? 'active' : ''}
+            onClick={() => handleGroupChange('')}
+          >
+            {t('All students')}
+          </button>
+          {students.data?.groups?.map((g) => (
+            <button
+              type="button"
+              key={g.id}
+              role="tab"
+              aria-selected={selectedGroup === g.id}
+              className={selectedGroup === g.id ? 'active' : ''}
+              onClick={() => handleGroupChange(g.id)}
+            >
+              {g.id === 'unassigned' ? t('No group') : g.name} ({g.count})
+            </button>
+          ))}
+        </div>
+      )}
       <State pending={students.isPending} error={students.error}>
         {students.data?.items.length ? (
           <section className="panel flush">
@@ -78,7 +113,10 @@ function Students() {
                   <span className="initial-avatar">{student.name.slice(0, 1)}</span>
                   <div className="grow">
                     <strong>{student.name}</strong>
-                    <small>{student.identifier || t('No identifier')}</small>
+                    <small>
+                      {student.identifier || t('No identifier')}
+                      {student.group_name ? ` · ${student.group_name}` : ''}
+                    </small>
                   </div>
                   <span className="row-arrow">→</span>
                 </Link>
@@ -87,11 +125,19 @@ function Students() {
           </section>
         ) : (
           <Empty
-            title={query ? 'No matching records' : 'No records yet'}
+            title={
+              query
+                ? 'No matching records'
+                : selectedGroup
+                  ? 'No students in this group'
+                  : 'No records yet'
+            }
             description={
               query
                 ? 'Clear your search or try another name.'
-                : 'Create your first record to get started.'
+                : selectedGroup
+                  ? 'No students have been assigned to this group yet.'
+                  : 'Create your first record to get started.'
             }
           />
         )}
@@ -159,14 +205,8 @@ function StudentDetail() {
                 student.data.contacts.map((contact) => (
                   <div className="record-row" key={`${contact.id}-${contact.audience}`}>
                     <div className="grow">
-                      <strong>
-                        {contact.label ||
-                          t(contact.audience === 'student' ? 'Student' : 'Guardian')}
-                      </strong>
-                      <small>
-                        {contact.phone} ·{' '}
-                        {t(contact.audience === 'student' ? 'Student' : 'Guardian')}
-                      </small>
+                      <strong>{t(contact.audience === 'student' ? 'Student' : 'Guardian')}</strong>
+                      <small>{contact.phone}</small>
                     </div>
                     <span
                       className={`badge ${contact.permitted && !contact.suppressed ? 'accepted' : 'paused'}`}
@@ -196,16 +236,16 @@ function StudentDetail() {
               <section className="panel danger-panel">
                 <div className="section-header">
                   <div>
-                    <h2>{t('Archive student')}</h2>
+                    <h2>{t('Delete student')}</h2>
                     <p className="muted">
                       {t(
-                        'Remove this student from active batches and message lists. Past exam results and message history will be preserved.',
+                        'Permanently delete this student record. All their contacts, group memberships, and recorded exam marks will be removed.',
                       )}
                     </p>
                   </div>
                   <Button variant="danger" onClick={() => setConfirm(true)}>
                     <Trash2 size={16} />
-                    {t('Archive')}
+                    {t('Delete student')}
                   </Button>
                 </div>
               </section>
@@ -246,12 +286,11 @@ function StudentDetail() {
           {t('Continue')}
         </Button>
       </Dialog>
-      <Dialog title="Archive student" open={confirm} onClose={() => setConfirm(false)}>
+      <Dialog title="Delete student" open={confirm} onClose={() => setConfirm(false)}>
         <p>
-          {t('Archive')}
-          {student.data?.name}
+          {t('Are you sure you want to permanently delete')} <strong>{student.data?.name}</strong>?{' '}
           {t(
-            '? Existing exam results and sent messages stay in history. New messages will exclude this student.',
+            'All their contacts, group memberships, and recorded exam marks will be permanently removed. This action cannot be undone.',
           )}
         </p>
         <Alert error={action.error} />
@@ -273,7 +312,7 @@ function StudentDetail() {
               )
             }
           >
-            {t('Archive')}
+            {t('Delete student')}
           </Button>
         </div>
       </Dialog>
@@ -296,10 +335,9 @@ function StudentForm({ initial }: { initial?: Detail }) {
     () =>
       initial?.contacts.map((c) => ({
         phone: c.phone,
-        label: c.label,
         audience: c.audience,
         permitted: true,
-      })) ?? [{ phone: '', label: '', audience: 'guardian' as const, permitted: true }],
+      })) ?? [{ phone: '', audience: 'guardian' as const, permitted: true }],
   );
   const [groups, setGroups] = useState<string[]>(initial?.groups.map((g) => g.group_id) ?? []);
   const [dirty, setDirty] = useState(false);
@@ -369,7 +407,7 @@ function StudentForm({ initial }: { initial?: Detail }) {
               onClick={() => {
                 setContacts((all) => [
                   ...all,
-                  { phone: '', label: '', audience: 'guardian', permitted: true },
+                  { phone: '', audience: 'guardian', permitted: true },
                 ]);
                 setDirty(true);
               }}
@@ -387,13 +425,6 @@ function StudentForm({ initial }: { initial?: Detail }) {
                     value={contact.phone}
                     required
                     onChange={(e) => updateContact(i, { phone: e.target.value })}
-                  />
-                </Field>
-                <Field label="Relationship (optional)">
-                  <input
-                    value={contact.label}
-                    placeholder="Mother, father, self…"
-                    onChange={(e) => updateContact(i, { label: e.target.value })}
                   />
                 </Field>
                 <Field label="Recipients">
@@ -427,7 +458,9 @@ function StudentForm({ initial }: { initial?: Detail }) {
           ))}
         </section>
         <section className="panel">
-          <h2>{t('Groups')}</h2>
+          <div className="section-header">
+            <h2>{t('Groups')}</h2>
+          </div>
           <State pending={available.isPending} error={available.error}>
             <div className="choice-grid">
               {available.data?.items.map((group) => (

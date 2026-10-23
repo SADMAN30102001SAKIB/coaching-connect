@@ -9,7 +9,6 @@ import {
 } from 'react';
 import { AlertCircle, ArrowRight, CheckCircle2, Inbox, LoaderCircle, X } from 'lucide-react';
 import { useLocale } from './i18n';
-import { ApiError } from './api';
 import { useBlocker } from 'react-router';
 
 export function Button({
@@ -66,14 +65,7 @@ export function Alert({
   return (
     <div className={`alert ${success ? 'success' : 'error'}`} role={success ? 'status' : 'alert'}>
       {success ? <CheckCircle2 size={19} /> : <AlertCircle size={19} />}
-      <div>
-        {error instanceof Error ? t(error.message) : children}
-        {error instanceof ApiError && error.requestId && (
-          <small>
-            {t('Reference:')} {error.requestId}
-          </small>
-        )}
-      </div>
+      <div>{error instanceof Error ? t(error.message) : children}</div>
     </div>
   );
 }

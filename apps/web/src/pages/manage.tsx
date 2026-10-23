@@ -148,17 +148,38 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
               maxLength={160}
             />
           </Field>
-          {edit && edit !== 'new' && (
-            <label className="check">
-              <input type="checkbox" name="active" defaultChecked />
-              {t('Active')} <small>{t('Uncheck to archive.')}</small>
-            </label>
-          )}
           <Alert error={action.error} />
           <div className="actions">
             <Button type="button" variant="secondary" onClick={() => setEdit(null)}>
               {t('Cancel')}
             </Button>
+            {edit && edit !== 'new' && permissions.includes(`${prefix}.archive`) && (
+              <Button
+                type="button"
+                variant="danger"
+                busy={action.isPending}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      groups
+                        ? t(
+                            'Are you sure you want to delete this group? Students will remain in the center but will no longer be assigned to this group.',
+                          )
+                        : t(
+                            'Are you sure you want to delete this subject? It cannot be deleted if used in any exam.',
+                          ),
+                    )
+                  ) {
+                    action.mutate(
+                      { path: `/catalog/${edit.id}`, method: 'DELETE' },
+                      { onSuccess: () => setEdit(null) },
+                    );
+                  }
+                }}
+              >
+                {t(groups ? 'Delete group' : 'Delete subject')}
+              </Button>
+            )}
             <Button type="submit" busy={action.isPending}>
               {t('Save')}
             </Button>
@@ -346,14 +367,25 @@ function TemplateForm({ initial, onDone }: { initial: Template | undefined; onDo
         </select>
       </Field>
       <VariableEditor body={body} setBody={setBody} scope={scope} />
-      {initial && (
-        <label className="check">
-          <input type="checkbox" name="active" defaultChecked />
-          {t('Active')}
-        </label>
-      )}
       <Alert error={action.error} />
       <div className="actions">
+        {initial && (
+          <Button
+            type="button"
+            variant="danger"
+            busy={action.isPending}
+            onClick={() => {
+              if (window.confirm(t('Are you sure you want to delete this template?'))) {
+                action.mutate(
+                  { path: `/templates/${initial.id}`, method: 'DELETE' },
+                  { onSuccess: onDone },
+                );
+              }
+            }}
+          >
+            {t('Delete template')}
+          </Button>
+        )}
         <Button type="submit" busy={action.isPending}>
           {t('Save')}
         </Button>
@@ -669,17 +701,34 @@ function RoleEditor({ initial, onDone }: { initial: Role | undefined; onDone: ()
             ))}
         </fieldset>
       </div>
-      {initial && (
-        <label className="check">
-          <input type="checkbox" name="active" defaultChecked />
-          {t('Active')}
-        </label>
-      )}
       <Alert error={action.error} />
       <div className="actions">
         <Button type="button" variant="secondary" onClick={onDone}>
           {t('Cancel')}
         </Button>
+        {initial && (
+          <Button
+            type="button"
+            variant="danger"
+            busy={action.isPending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  t(
+                    'Are you sure you want to delete this role? It cannot be deleted if staff members are currently assigned to it.',
+                  ),
+                )
+              ) {
+                action.mutate(
+                  { path: `/roles/${initial.id}`, method: 'DELETE' },
+                  { onSuccess: onDone },
+                );
+              }
+            }}
+          >
+            {t('Delete role')}
+          </Button>
+        )}
         <Button type="submit" busy={action.isPending}>
           {t('Save role')}
         </Button>
@@ -793,16 +842,16 @@ function SettingsPage() {
                 : 'Connect this center’s own SMS account. Your key is never displayed again.'}
             </p>
             {provider.data?.configured && !replace ? (
-              <>
+              <div className="provider-info">
                 <p>
-                  {t('Sender IDs:')} {provider.data.sender_ids.join(', ')}
+                  <strong>{t('Sender IDs:')}</strong> {provider.data.sender_ids.join(', ')}
                 </p>
                 <div className="actions">
                   <Button variant="secondary" onClick={() => setReplace(true)}>
                     {t('Replace account settings')}
                   </Button>
                 </div>
-              </>
+              </div>
             ) : (
               <form
                 onSubmit={(e) => {

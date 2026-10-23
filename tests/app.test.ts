@@ -136,6 +136,21 @@ describe('domain rules', () => {
     expect(() => renderTemplate('{{marks}}', 'announcement', { marks: '50' })).toThrow();
     expect(() => renderTemplate('{{student_name}}', 'summary', {})).toThrow();
     expect(() => renderTemplate('{oops}', 'summary', {})).toThrow();
+    expect(
+      renderTemplate('{{marks}}/{{full_marks}}', 'subject', { marks: '85', full_marks: '100' }),
+    ).toBe('85/100');
+    expect(
+      renderTemplate('{{marks}}/{{full_marks}}', 'subject', {
+        marks: 'absent',
+        full_marks: '100',
+      }),
+    ).toBe('absent');
+    expect(
+      renderTemplate('{{marks}} / {{full_marks}}', 'subject', {
+        marks: 'absent',
+        full_marks: '100',
+      }),
+    ).toBe('absent');
   });
   it('estimates extended GSM and Unicode segments separately', () => {
     expect(estimateSegments('a'.repeat(160)).segments).toBe(1);
@@ -286,7 +301,7 @@ describe('academic records and sending', () => {
       name: 'Ayesha',
       identifier: '01',
       group_ids: [],
-      contacts: [{ phone: '01700000003', label: 'Mother', audience: 'guardian', permitted: true }],
+      contacts: [{ phone: '01700000003', audience: 'guardian', permitted: true }],
     });
     expect(result.status).toBe(200);
     student = z.string().parse(result.body['id']);
@@ -304,7 +319,7 @@ describe('academic records and sending', () => {
     const created = await call(`/c/${centerId}/exams`, 'POST', {
       name: 'October test',
       exam_date: '2026-10-22',
-      papers: [{ subject_id: subject, maximum: 7500, pass_mark: null }],
+      papers: [{ subject_id: subject, maximum: 7500 }],
     });
     expect(created.status).toBe(201);
     exam = z.string().parse(created.body['id']);
@@ -394,15 +409,8 @@ describe('academic records and sending', () => {
   });
   it('allows paper edits with conflict checks and adding another subject', async () => {
     const path = `/c/${centerId}/exams/${exam}/papers/${paper}`;
-    expect((await call(path, 'PATCH', { maximum: 7500, pass_mark: 2500, version: 1 })).status).toBe(
-      200,
-    );
-    expect((await call(path, 'PATCH', { maximum: 7500, pass_mark: 2500, version: 1 })).status).toBe(
-      409,
-    );
-    expect((await call(path, 'PATCH', { maximum: 7500, pass_mark: 8000, version: 2 })).status).toBe(
-      422,
-    );
+    expect((await call(path, 'PATCH', { maximum: 8000, version: 1 })).status).toBe(200);
+    expect((await call(path, 'PATCH', { maximum: 8000, version: 1 })).status).toBe(409);
     const second = await call(`/c/${centerId}/catalog`, 'POST', {
       kind: 'subject',
       name: 'Additional subject',
@@ -410,7 +418,6 @@ describe('academic records and sending', () => {
     const input = {
       subject_id: z.string().parse(second.body['id']),
       maximum: 5000,
-      pass_mark: null,
     };
     expect((await call(`/c/${centerId}/exams/${exam}/papers`, 'POST', input)).status).toBe(201);
     expect((await call(`/c/${centerId}/exams/${exam}/papers`, 'POST', input)).status).toBe(409);
@@ -453,9 +460,7 @@ describe('academic records and sending', () => {
       name: 'Batch student',
       identifier: '02',
       group_ids: [testGroup],
-      contacts: [
-        { phone: '01799998888', label: 'Guardian', audience: 'guardian', permitted: true },
-      ],
+      contacts: [{ phone: '01799998888', audience: 'guardian', permitted: true }],
     });
     expect(studentRes.status).toBe(200);
 
@@ -485,6 +490,57 @@ describe('academic records and sending', () => {
       .array(z.object({ id: z.string(), name: z.string(), count: z.number() }))
       .parse(afterDelete.body['groups']);
     expect(groupsAfter.some((g) => g.id === testGroup)).toBe(false);
+  });
+  it('deletes student, catalog, and exam records with foreign key cascade and counter updates', async () => {
+    const testCatGroup = await call(`/c/${centerId}/catalog`, 'POST', {
+      kind: 'group',
+      name: 'Deletable group',
+    });
+    expect(testCatGroup.status).toBe(201);
+    const groupId = z.string().parse(testCatGroup.body['id']);
+
+    const createdStudent = await call(`/c/${centerId}/students`, 'POST', {
+      name: 'Deletable Student',
+      identifier: 'DEL-01',
+      group_ids: [groupId],
+      contacts: [{ phone: '01700000099', audience: 'guardian', permitted: true }],
+    });
+    expect(createdStudent.status).toBe(200);
+    const delStudentId = z.string().parse(createdStudent.body['id']);
+
+    expect((await call(`/c/${centerId}/students/${delStudentId}`)).status).toBe(200);
+
+    const deleteStudentRes = await call(`/c/${centerId}/students/${delStudentId}`, 'DELETE');
+    expect(deleteStudentRes.status).toBe(200);
+    expect((await call(`/c/${centerId}/students/${delStudentId}`)).status).toBe(404);
+
+    const deleteGroupRes = await call(`/c/${centerId}/catalog/${groupId}`, 'DELETE');
+    expect(deleteGroupRes.status).toBe(200);
+
+    const examSubject = await call(`/c/${centerId}/catalog`, 'POST', {
+      kind: 'subject',
+      name: 'Subject In Exam',
+    });
+    expect(examSubject.status).toBe(201);
+    const examSubjectId = z.string().parse(examSubject.body['id']);
+
+    const newExam = await call(`/c/${centerId}/exams`, 'POST', {
+      name: 'Deletable Exam',
+      exam_date: '2026-10-23',
+      papers: [{ subject_id: examSubjectId, maximum: 5000 }],
+    });
+    expect(newExam.status).toBe(201);
+    const newExamId = z.string().parse(newExam.body['id']);
+
+    // Attempting to delete subject while in paper should fail with 422
+    expect((await call(`/c/${centerId}/catalog/${examSubjectId}`, 'DELETE')).status).toBe(422);
+
+    // Deleting exam cascades and removes paper
+    expect((await call(`/c/${centerId}/exams/${newExamId}`, 'DELETE')).status).toBe(200);
+    expect((await call(`/c/${centerId}/exams/${newExamId}`)).status).toBe(404);
+
+    // Now deleting the subject should succeed
+    expect((await call(`/c/${centerId}/catalog/${examSubjectId}`, 'DELETE')).status).toBe(200);
   });
 });
 
@@ -653,9 +709,7 @@ describe('campaign edge states', () => {
         name: `Many recipients ${i}`,
         identifier: '',
         group_ids: [],
-        contacts: [
-          { phone: `0170000006${i}`, label: 'Guardian', audience: 'guardian', permitted: true },
-        ],
+        contacts: [{ phone: `0170000006${i}`, audience: 'guardian', permitted: true }],
       });
       ids.push(z.string().parse(created.body['id']));
     }
@@ -712,7 +766,7 @@ describe('campaign edge states', () => {
       ),
       statement(
         env.DB,
-        "INSERT INTO student_contacts SELECT ?,json_extract(value,'$.id'),?,'Guardian','guardian',1 FROM json_each(?)",
+        "INSERT INTO student_contacts SELECT ?,json_extract(value,'$.id'),?,'guardian',1 FROM json_each(?)",
         centerId,
         contact,
         JSON.stringify(records),
@@ -743,9 +797,7 @@ describe('campaign edge states', () => {
         name,
         identifier: '',
         group_ids: [],
-        contacts: [
-          { phone: `0170000004${i}`, label: 'Guardian', audience: 'guardian', permitted: true },
-        ],
+        contacts: [{ phone: `0170000004${i}`, audience: 'guardian', permitted: true }],
       });
       students.push(z.string().parse(created.body['id']));
     }
@@ -838,8 +890,8 @@ describe('campaign edge states', () => {
       identifier: '',
       group_ids: [],
       contacts: [
-        { phone: '01700000091', label: 'First guardian', audience: 'guardian', permitted: true },
-        { phone: '01700000092', label: 'Second guardian', audience: 'guardian', permitted: true },
+        { phone: '01700000091', audience: 'guardian', permitted: true },
+        { phone: '01700000092', audience: 'guardian', permitted: true },
       ],
     });
     const studentId = z.string().parse(student.body['id']);
@@ -917,9 +969,7 @@ describe('campaign edge states', () => {
         name,
         identifier: '',
         group_ids: [],
-        contacts: [
-          { phone: '01700000088', label: 'Guardian', audience: 'guardian', permitted: true },
-        ],
+        contacts: [{ phone: '01700000088', audience: 'guardian', permitted: true }],
       });
       ids.push(z.string().parse(created.body['id']));
     }
@@ -970,8 +1020,8 @@ describe('campaign edge states', () => {
         identifier: '',
         group_ids: [],
         contacts: [
-          { phone: '01700000030', label: 'Guardian', audience: 'guardian', permitted: true },
-          { phone: '01700000030', label: 'Same number', audience: 'student', permitted: true },
+          { phone: '01700000030', audience: 'guardian', permitted: true },
+          { phone: '01700000030', audience: 'student', permitted: true },
         ],
       });
       students.push(z.string().parse(created.body['id']));

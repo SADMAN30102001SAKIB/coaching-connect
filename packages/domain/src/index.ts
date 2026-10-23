@@ -49,7 +49,6 @@ export const variables = [
   'subject_name',
   'marks',
   'full_marks',
-  'status',
   'results_summary',
   'institute_name',
 ] as const;
@@ -100,7 +99,14 @@ export function renderTemplate(
       : scope === 'summary'
         ? ['student_name', 'exam_name', 'results_summary', 'institute_name']
         : variables.filter((v) => v !== 'results_summary');
-  const rendered = text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, token: string) => {
+  let prepared = text;
+  if (values.marks && ['absent', 'pending', 'exempt'].includes(values.marks)) {
+    prepared = prepared.replace(
+      /\{\{\s*marks\s*\}\}\s*\/\s*\{\{\s*full_marks\s*\}\}/g,
+      '{{marks}}',
+    );
+  }
+  const rendered = prepared.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, token: string) => {
     if (!allowed.includes(token))
       throw new Error(`Variable ${token} is not available for this message type`);
     const value = values[token as Variable];
@@ -168,12 +174,12 @@ export interface Student {
   identifier: string;
   active: number;
   version: number;
+  group_name?: string | null;
 }
 export interface Contact {
   suppressed: number;
   id: string;
   phone: string;
-  label: string;
   audience: 'student' | 'guardian';
   permitted: number;
 }
@@ -191,7 +197,6 @@ export interface Paper {
   exam_id: string;
   subject_id: string;
   maximum: number;
-  pass_mark: number | null;
   position: number;
 }
 export interface Mark {
@@ -201,6 +206,7 @@ export interface Mark {
   status: ResultStatus;
   score: number | null;
   version: number;
+  group_name?: string | null;
 }
 export interface Template {
   id: string;

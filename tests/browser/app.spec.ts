@@ -91,14 +91,14 @@ test('phone login, center onboarding and responsive academic workflow', async ({
       name: 'Ayesha Rahman',
       identifier: '01',
       group_ids: [group.id],
-      contacts: [{ phone: '01700000013', label: 'Mother', audience: 'guardian', permitted: true }],
+      contacts: [{ phone: '01700000013', audience: 'guardian', permitted: true }],
     },
   });
   expect(studentResponse.status()).toBe(200);
   await page.goto('/students');
   await expect(page.getByText('Ayesha Rahman', { exact: true })).toBeVisible();
   await page.getByText('Ayesha Rahman', { exact: true }).click();
-  await expect(page.getByText('Mother', { exact: true })).toBeVisible();
+  await expect(page.getByText('Guardian', { exact: true })).toBeVisible();
   await page.goto('/exams/new');
   await page.getByLabel('Name', { exact: true }).fill('October assessment');
   await page.getByLabel('Date', { exact: true }).fill('2026-10-22');

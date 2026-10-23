@@ -6,15 +6,9 @@ import { assert } from './errors';
 import { requirePermission, type AppEnv } from './security';
 
 export const exams = new Hono<AppEnv>();
-const paperMarks = z
-  .object({
-    maximum: z.number().int().min(1).max(999999999),
-    pass_mark: z.number().int().nonnegative().nullable(),
-  })
-  .refine(
-    (x) => x.pass_mark === null || x.pass_mark <= x.maximum,
-    'Pass mark cannot exceed the maximum',
-  );
+const paperMarks = z.object({
+  maximum: z.number().int().min(1).max(999999999),
+});
 const paperInput = paperMarks.safeExtend({ subject_id: z.uuid() });
 const examInput = z.object({
   name: nameSchema,
@@ -74,13 +68,12 @@ exams.post('/', async (c) => {
     ...input.papers.map((p, position) =>
       statement(
         c.env.DB,
-        'INSERT INTO papers(id,center_id,exam_id,subject_id,maximum,pass_mark,position) VALUES(?,?,?,?,?,?,?)',
+        'INSERT INTO papers(id,center_id,exam_id,subject_id,maximum,position) VALUES(?,?,?,?,?,?)',
         uid(),
         a.center.id,
         id,
         p.subject_id,
         p.maximum,
-        p.pass_mark,
         position,
       ),
     ),
@@ -145,6 +138,37 @@ exams.patch('/:id', async (c) => {
   assert(result.meta.changes, 'EDIT_CONFLICT', 'The exam changed. Reload before saving.', 409);
   return c.json({ ok: true });
 });
+exams.delete('/:id', async (c) => {
+  const a = requirePermission(c, 'exams.archive');
+  const examId = c.req.param('id');
+  const exam = await one<Exam>(
+    c.env.DB,
+    'SELECT * FROM exams WHERE center_id=? AND id=?',
+    a.center.id,
+    examId,
+  );
+  assert(exam, 'NOT_FOUND', 'This exam is unavailable.', 404);
+
+  await c.env.DB.batch([
+    statement(
+      c.env.DB,
+      'DELETE FROM results WHERE center_id=? AND paper_id IN (SELECT id FROM papers WHERE center_id=? AND exam_id=?)',
+      a.center.id,
+      a.center.id,
+      examId,
+    ),
+    statement(c.env.DB, 'DELETE FROM papers WHERE center_id=? AND exam_id=?', a.center.id, examId),
+    statement(
+      c.env.DB,
+      'DELETE FROM participants WHERE center_id=? AND exam_id=?',
+      a.center.id,
+      examId,
+    ),
+    statement(c.env.DB, 'DELETE FROM exams WHERE center_id=? AND id=?', a.center.id, examId),
+  ]);
+
+  return c.json({ id: examId });
+});
 exams.patch('/:id/papers/:paper', async (c) => {
   const a = requirePermission(c, 'exams.update');
   const input = paperMarks
@@ -152,9 +176,8 @@ exams.patch('/:id/papers/:paper', async (c) => {
     .parse(await c.req.json());
   const result = await statement(
     c.env.DB,
-    'UPDATE papers SET maximum=?,pass_mark=?,version=version+1 WHERE center_id=? AND exam_id=? AND id=? AND version=?',
+    'UPDATE papers SET maximum=?,version=version+1 WHERE center_id=? AND exam_id=? AND id=? AND version=?',
     input.maximum,
-    input.pass_mark,
     a.center.id,
     c.req.param('id'),
     c.req.param('paper'),
@@ -174,10 +197,9 @@ exams.post('/:id/papers', async (c) => {
   const id = uid();
   const result = await statement(
     c.env.DB,
-    "INSERT INTO papers(id,center_id,exam_id,subject_id,maximum,pass_mark,position) SELECT ?,e.center_id,e.id,s.id,?,?,COALESCE((SELECT MAX(position)+1 FROM papers WHERE center_id=e.center_id AND exam_id=e.id),0) FROM exams e JOIN catalog s ON s.center_id=e.center_id AND s.id=? AND s.kind='subject' AND s.active=1 WHERE e.center_id=? AND e.id=? AND e.active=1 AND (SELECT COUNT(*) FROM papers WHERE center_id=e.center_id AND exam_id=e.id)<30",
+    "INSERT INTO papers(id,center_id,exam_id,subject_id,maximum,position) SELECT ?,e.center_id,e.id,s.id,?,COALESCE((SELECT MAX(position)+1 FROM papers WHERE center_id=e.center_id AND exam_id=e.id),0) FROM exams e JOIN catalog s ON s.center_id=e.center_id AND s.id=? AND s.kind='subject' AND s.active=1 WHERE e.center_id=? AND e.id=? AND e.active=1 AND (SELECT COUNT(*) FROM papers WHERE center_id=e.center_id AND exam_id=e.id)<30",
     id,
     input.maximum,
-    input.pass_mark,
     input.subject_id,
     a.center.id,
     c.req.param('id'),
@@ -315,17 +337,53 @@ exams.get('/:id/papers/:paper/marks', async (c) => {
     c.req.param('paper'),
   );
   assert(paper, 'NOT_FOUND', 'This paper is unavailable.', 404);
-  const items = await rows<Mark>(
+  const groupId = c.req.query('group_id');
+  const groups = await rows<{ id: string; name: string; count: number }>(
     c.env.DB,
-    "SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version FROM participants p JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=? WHERE p.center_id=? AND p.exam_id=? AND p.student_id>? ORDER BY p.student_id LIMIT 51",
-    paper.id,
+    `SELECT g.id, g.name, COUNT(DISTINCT p.student_id) AS count
+     FROM participants p
+     JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.left_at IS NULL
+     JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
+     WHERE p.center_id=? AND p.exam_id=?
+     GROUP BY g.id, g.name
+     ORDER BY g.name`,
     a.center.id,
     paper.exam_id,
-    c.req.query('cursor') ?? '',
   );
+  const items = groupId
+    ? await rows<Mark>(
+        c.env.DB,
+        `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
+         (SELECT GROUP_CONCAT(g.name, ', ') FROM group_members gm JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group' WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL) AS group_name
+         FROM participants p
+         JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id
+         JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.group_id=? AND gm.left_at IS NULL
+         LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?
+         WHERE p.center_id=? AND p.exam_id=? AND p.student_id>?
+         ORDER BY p.student_id LIMIT 51`,
+        groupId,
+        paper.id,
+        a.center.id,
+        paper.exam_id,
+        c.req.query('cursor') ?? '',
+      )
+    : await rows<Mark>(
+        c.env.DB,
+        `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
+         (SELECT GROUP_CONCAT(g.name, ', ') FROM group_members gm JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group' WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL) AS group_name
+         FROM participants p
+         JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id
+         LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?
+         WHERE p.center_id=? AND p.exam_id=? AND p.student_id>?
+         ORDER BY p.student_id LIMIT 51`,
+        paper.id,
+        a.center.id,
+        paper.exam_id,
+        c.req.query('cursor') ?? '',
+      );
   const more = items.length > 50;
   if (more) items.pop();
-  return c.json({ paper, items, next: more ? items.at(-1)?.student_id : null });
+  return c.json({ paper, items, next: more ? items.at(-1)?.student_id : null, groups });
 });
 exams.put('/:id/papers/:paper/marks', async (c) => {
   const a = requirePermission(c, 'results.update');

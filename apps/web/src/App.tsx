@@ -217,22 +217,23 @@ export default function App() {
               ))}
           </nav>
           <div className="sidebar-bottom">
-            <Link to="/security">
-              <ShieldCheck size={18} />
+            <NavLink to="/security">
+              <ShieldCheck size={19} />
               {t('Account security')}
-            </Link>
+            </NavLink>
             {user.platform === 1 && (
-              <Link to="/platform">
-                <LayoutGrid size={18} />
+              <NavLink to="/platform">
+                <LayoutGrid size={19} />
                 {t('Platform')}
-              </Link>
+              </NavLink>
             )}
             <button
+              type="button"
               onClick={() => {
                 signOut();
               }}
             >
-              <LogOut size={18} />
+              <LogOut size={19} />
               {t('Sign out')}
             </button>
           </div>
@@ -424,34 +425,7 @@ function HomePage({ name }: { name: string }) {
       }
     >
       <State pending={home.isPending} error={home.error}>
-        <section className="welcome-banner">
-          <div>
-            <span className="mini-label">{t('YOUR NEXT STEP')}</span>
-            <h2>
-              {t('Good teaching deserves')}
-              <br />
-              {t('a simpler workspace.')}
-            </h2>
-            <p>{t('No import. No repetitive typing. Just your next step.')}</p>
-            {permissions.includes('exams.read') && (
-              <Link className="button secondary" to="/exams">
-                {t('Enter marks')}
-                <GraduationCap size={18} />
-              </Link>
-            )}
-          </div>
-          <div className="banner-art" aria-hidden="true">
-            <div className="art-bubble">
-              <MessageSquareText size={40} />
-              <span>{t('Personal. Clear. Connected.')}</span>
-            </div>
-            <div className="art-lines">
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
-        </section>
+        <BalanceCard />
         <div className="stats-grid">
           {[
             { label: 'Students', value: home.data?.students, icon: Users, path: '/students' },
@@ -470,7 +444,6 @@ function HomePage({ name }: { name: string }) {
               </Link>
             ))}
         </div>
-        <BalanceCard />
         <section className="panel">
           <div className="section-header">
             <div>
