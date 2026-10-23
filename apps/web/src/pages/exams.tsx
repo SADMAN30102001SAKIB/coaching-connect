@@ -817,7 +817,7 @@ function MarksForm({
       {unsaved.prompt}
       <Alert error={action.error ?? error} />
       {data.groups.length > 0 && (
-        <div className="tabs group-tabs" role="tablist" aria-label={t('Filter by group')}>
+        <div className="group-tabs" role="tablist" aria-label={t('Filter by group')}>
           <button
             type="button"
             role="tab"
@@ -825,7 +825,8 @@ function MarksForm({
             className={!selectedGroup ? 'active' : ''}
             onClick={() => handleGroupChange('')}
           >
-            {t('All groups')}
+            <span>{t('All groups')}</span>
+            <span className="chip-count">{data.groups.reduce((sum, g) => sum + g.count, 0)}</span>
           </button>
           {data.groups.map((g) => (
             <button
@@ -836,7 +837,8 @@ function MarksForm({
               className={selectedGroup === g.id ? 'active' : ''}
               onClick={() => handleGroupChange(g.id)}
             >
-              {g.name} ({g.count})
+              <span>{g.name}</span>
+              <span className="chip-count">{g.count}</span>
             </button>
           ))}
         </div>

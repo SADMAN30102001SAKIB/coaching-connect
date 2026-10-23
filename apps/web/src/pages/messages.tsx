@@ -75,9 +75,7 @@ function History() {
                     <strong>{campaign.name}</strong>
                     <small>
                       {dateTime(campaign.created_at, center.timezone, locale)} · {campaign.total}{' '}
-                      {t('messages ·')}
-                      {campaign.delivered}
-                      {t('delivered')}
+                      {t('messages ·')} {campaign.delivered} {t('delivered')}
                     </small>
                   </div>
                   <Badge status={campaign.state} />

@@ -82,7 +82,7 @@ function Students() {
         </Button>
       </form>
       {(students.data?.groups?.length ?? 0) > 0 && (
-        <div className="tabs group-tabs" role="tablist" aria-label={t('Filter by group')}>
+        <div className="group-tabs" role="tablist" aria-label={t('Filter by group')}>
           <button
             type="button"
             role="tab"
@@ -90,7 +90,12 @@ function Students() {
             className={!selectedGroup ? 'active' : ''}
             onClick={() => handleGroupChange('')}
           >
-            {t('All students')}
+            <span>{t('All students')}</span>
+            {students.data?.groups && (
+              <span className="chip-count">
+                {students.data.groups.reduce((sum, g) => sum + g.count, 0)}
+              </span>
+            )}
           </button>
           {students.data?.groups?.map((g) => (
             <button
@@ -101,7 +106,8 @@ function Students() {
               className={selectedGroup === g.id ? 'active' : ''}
               onClick={() => handleGroupChange(g.id)}
             >
-              {g.id === 'unassigned' ? t('No group') : g.name} ({g.count})
+              <span>{g.id === 'unassigned' ? t('No group') : g.name}</span>
+              <span className="chip-count">{g.count}</span>
             </button>
           ))}
         </div>
@@ -265,24 +271,35 @@ function StudentDetail() {
               </div>
               {student.data.contacts.length ? (
                 student.data.contacts.map((contact) => (
-                  <div className="record-row" key={`${contact.id}-${contact.audience}`}>
-                    <div className="grow">
-                      <strong>{t(contact.audience === 'student' ? 'Student' : 'Guardian')}</strong>
-                      <small>{contact.phone}</small>
+                  <div
+                    className="record-row contact-record-row"
+                    key={`${contact.id}-${contact.audience}`}
+                  >
+                    <div className="contact-info grow">
+                      <div className="contact-headline">
+                        <strong>
+                          {t(contact.audience === 'student' ? 'Student' : 'Guardian')}
+                        </strong>
+                        <span
+                          className={`badge ${contact.permitted && !contact.suppressed ? 'accepted' : 'paused'}`}
+                        >
+                          {t(
+                            contact.suppressed
+                              ? 'Number blocked'
+                              : contact.permitted
+                                ? 'SMS permitted'
+                                : 'No SMS permission',
+                          )}
+                        </span>
+                      </div>
+                      <small className="contact-phone">{contact.phone}</small>
                     </div>
-                    <span
-                      className={`badge ${contact.permitted && !contact.suppressed ? 'accepted' : 'paused'}`}
-                    >
-                      {t(
-                        contact.suppressed
-                          ? 'Number blocked'
-                          : contact.permitted
-                            ? 'SMS permitted'
-                            : 'No SMS permission',
-                      )}
-                    </span>
                     {permissions.includes('students.update') && (
-                      <Button variant="ghost" onClick={() => setSuppression(contact)}>
+                      <Button
+                        variant="ghost"
+                        className="contact-action-btn"
+                        onClick={() => setSuppression(contact)}
+                      >
                         {t(contact.suppressed ? 'Unblock number' : 'Block number')}
                       </Button>
                     )}
