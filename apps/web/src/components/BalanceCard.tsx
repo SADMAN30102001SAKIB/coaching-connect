@@ -2,7 +2,7 @@ import { Wallet } from 'lucide-react';
 import type { Balance } from '@coaching/domain';
 import { useAction, useCenter, useData } from '../api';
 import { useLocale } from '../i18n';
-import { Alert, Button, dateTime } from '../ui';
+import { Alert, Button, State, dateTime } from '../ui';
 
 export function BalanceCard() {
   const { center, permissions } = useCenter();
@@ -18,21 +18,23 @@ export function BalanceCard() {
         <p className="eyebrow">
           <Wallet size={15} /> {t('SMS balance')}
         </p>
-        <strong className="balance-number">
-          {data?.balance === null || data?.balance === undefined ? '—' : `৳${data.balance}`}
-        </strong>
-        <p className="muted">
-          {data?.checked_at
-            ? dateTime(data.checked_at, center.timezone, locale)
-            : t('Not checked yet')}
-        </p>
-        {data?.estimate_sms !== null && data?.estimate_sms !== undefined && (
+        <State query={query} compact>
+          <strong className="balance-number">
+            {data?.balance === null || data?.balance === undefined ? '—' : `৳${data.balance}`}
+          </strong>
           <p className="muted">
-            Provider estimate: {data.estimate_sms} SMS. Long or Bangla messages may use more.
+            {data?.checked_at
+              ? dateTime(data.checked_at, center.timezone, locale)
+              : t('Not checked yet')}
           </p>
-        )}
-        <small>{t('Balance is cached, not a reservation.')}</small>
-        <Alert error={refresh.error ?? query.error} />
+          {data?.estimate_sms !== null && data?.estimate_sms !== undefined && (
+            <p className="muted">
+              Provider estimate: {data.estimate_sms} SMS. Long or Bangla messages may use more.
+            </p>
+          )}
+          <small>{t('Balance is cached, not a reservation.')}</small>
+        </State>
+        <Alert error={refresh.error} />
       </div>
       {permissions.includes('balance.refresh') && (
         <div className="balance-actions">

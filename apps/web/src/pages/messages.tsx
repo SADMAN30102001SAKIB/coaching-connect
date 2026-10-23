@@ -29,6 +29,7 @@ import {
   MoreChoices,
   SearchableSelect,
   useUnsaved,
+  useListParams,
 } from '../ui';
 import { VariableEditor } from './manage';
 
@@ -42,7 +43,8 @@ export default function MessagePages() {
   );
 }
 function History() {
-  const [cursor, setCursor] = useState('');
+  const { params, update } = useListParams();
+  const cursor = params.get('cursor') ?? '';
   const [deletingCampaign, setDeletingCampaign] = useState<Campaign | null>(null);
   const list = useData<Paged<Campaign>>(`/campaigns?cursor=${encodeURIComponent(cursor)}`);
   const action = useAction();
@@ -52,7 +54,6 @@ function History() {
     <Page
       eyebrow="EVERY UPDATE, ACCOUNTED FOR"
       title="Messages"
-      description="A clear history of what was prepared, submitted, and delivered."
       action={
         permissions.includes('messages.create') && (
           <Link className="button primary" to="/messages/new">
@@ -62,7 +63,7 @@ function History() {
         )
       }
     >
-      <State pending={list.isPending} error={list.error}>
+      <State query={list}>
         {list.data?.items.length ? (
           <section className="panel flush">
             {list.data.items.map((campaign) => (
@@ -86,7 +87,10 @@ function History() {
                       variant="ghost"
                       className="danger-icon-btn"
                       aria-label={`Delete ${campaign.name}`}
-                      onClick={() => setDeletingCampaign(campaign)}
+                      onClick={() => {
+                        action.reset();
+                        setDeletingCampaign(campaign);
+                      }}
                     >
                       <Trash2 size={17} />
                     </Button>
@@ -107,7 +111,7 @@ function History() {
             description="Prepare a result update or an announcement to get started."
           />
         )}
-        <NextPage next={list.data?.next} onNext={setCursor} />
+        <NextPage next={list.data?.next} onNext={(cursor) => update({ cursor })} />
       </State>
       <Dialog
         title="Delete campaign"
@@ -186,11 +190,7 @@ function Compose() {
     scope === 'subject' && Boolean(firstExam),
   );
   return (
-    <Page
-      eyebrow="PERSONAL, WITHOUT THE REPETITION"
-      title="New message"
-      description="Choose the audience. Write once. Review every personalized message."
-    >
+    <Page eyebrow="PERSONAL, WITHOUT THE REPETITION" title="New message">
       {unsaved.prompt}
       <form
         className="compose-layout"
@@ -246,7 +246,7 @@ function Compose() {
           );
         }}
       >
-        <div>
+        <fieldset className="form-fields" disabled={action.isPending}>
           <section className="panel">
             <div className="step-title">
               <span>01</span>
@@ -276,6 +276,7 @@ function Compose() {
                   onChange={(next) => {
                     setSelectedExams(next);
                     setPaper('');
+                    setDirty(true);
                   }}
                   single={scope === 'subject'}
                   placeholder={t('Search exams…')}
@@ -307,7 +308,16 @@ function Compose() {
                 </select>
               </Field>
             )}
-            <Alert error={exams.error ?? details.error} />
+            {scope !== 'announcement' && permissions.includes('exams.read') && (
+              <State query={exams} compact>
+                {null}
+              </State>
+            )}
+            {scope === 'subject' && firstExam && (
+              <State query={details} compact>
+                {null}
+              </State>
+            )}
           </section>
           <section className="panel">
             <div className="step-title">
@@ -343,7 +353,10 @@ function Compose() {
                   <SearchableSelect
                     items={groups.data?.items ?? []}
                     selected={selectedGroups}
-                    onChange={setSelectedGroups}
+                    onChange={(next) => {
+                      setSelectedGroups(next);
+                      setDirty(true);
+                    }}
                     single={false}
                     placeholder={t('Search batches…')}
                     query={groups}
@@ -372,6 +385,7 @@ function Compose() {
             </div>
             <Field label="Templates">
               <select
+                key={scope}
                 defaultValue=""
                 onChange={(e) => {
                   const template = templates.data?.items.find((item) => item.id === e.target.value);
@@ -388,8 +402,19 @@ function Compose() {
                   ))}
               </select>
             </Field>
-            <MoreChoices query={templates} />
-            <VariableEditor body={body} setBody={setBody} scope={scope} />
+            {permissions.includes('templates.read') && (
+              <State query={templates} compact>
+                <MoreChoices query={templates} />
+              </State>
+            )}
+            <VariableEditor
+              body={body}
+              setBody={(value) => {
+                setBody(value);
+                setDirty(true);
+              }}
+              scope={scope}
+            />
           </section>
           <Alert error={action.error} />
           <div className="sticky-actions">
@@ -405,7 +430,7 @@ function Compose() {
               <ArrowRight size={17} />
             </Button>
           </div>
-        </div>
+        </fieldset>
         <aside className="compose-aside">
           <div className="phone-preview">
             <div className="phone-notch" />
@@ -442,20 +467,25 @@ function CampaignDetail() {
   const { id = '' } = useParams();
   const { permissions, center } = useCenter();
   const { t, locale } = useLocale();
-  const [cursor, setCursor] = useState('');
+  const { params, update } = useListParams();
+  const cursor = params.get('cursor') ?? '';
   const campaign = useData<CampaignData>(`/campaigns/${id}`, true, (data) =>
     !data || ['preparing', 'queued', 'processing'].includes(data.state)
       ? 1000
       : data.state === 'scheduled'
         ? 60000
-        : false,
+        : data.submitted > data.delivered + data.failed
+          ? 60000
+          : false,
   );
   const messages = useData<Paged<Message>>(
     `/campaigns/${id}/messages?cursor=${cursor}`,
     permissions.includes('messages.read_content'),
     campaign.data?.state === 'preparing' || campaign.data?.state === 'processing'
       ? 1000
-      : undefined,
+      : campaign.data && campaign.data.submitted > campaign.data.delivered + campaign.data.failed
+        ? 60000
+        : undefined,
   );
   const action = useAction();
   const retry = useAction();
@@ -466,7 +496,7 @@ function CampaignDetail() {
     if (canReadContent && campaignState) void refreshMessages();
   }, [canReadContent, campaignState, refreshMessages]);
   const navigate = useNavigate();
-  const [confirm, setConfirm] = useState<'send' | 'cancel' | 'retry' | 'delete' | null>(null);
+  const [confirm, setConfirm] = useState<'send' | 'retry' | 'delete' | 'cancel' | null>(null);
   const [scheduled, setScheduled] = useState(false);
   const [date, setDate] = useState('');
   const [localError, setLocalError] = useState<unknown>(null);
@@ -478,6 +508,10 @@ function CampaignDetail() {
     showExclusions && canReadContent,
   );
   const [rebuildKey] = useState(() => crypto.randomUUID());
+  const [resend, setResend] = useState(() => ({ selection: '', key: crypto.randomUUID() }));
+  const resendSelection = [...selected].sort().join(',');
+  if (resend.selection !== resendSelection)
+    setResend({ selection: resendSelection, key: crypto.randomUUID() });
   const item = campaign.data;
   return (
     <Page
@@ -485,7 +519,7 @@ function CampaignDetail() {
       title={item?.name ?? 'Review messages'}
       action={item && <Badge status={item.state} />}
     >
-      <State pending={campaign.isPending} error={campaign.error}>
+      <State query={campaign}>
         {item && (
           <>
             <Alert error={action.error ?? retry.error ?? localError} />
@@ -530,7 +564,7 @@ function CampaignDetail() {
                   {item.excluded})
                 </Button>
                 {showExclusions && (
-                  <State pending={exclusions.isPending} error={exclusions.error}>
+                  <State query={exclusions}>
                     {exclusions.data?.items.map((student) => (
                       <div className="record-row" key={student.student_id}>
                         <div className="grow">
@@ -621,7 +655,7 @@ function CampaignDetail() {
                 <span>{item.total}</span>
               </div>
               {permissions.includes('messages.read_content') ? (
-                <State pending={messages.isPending} error={messages.error}>
+                <State query={messages}>
                   {messages.data?.items.length ? (
                     <div className="message-grid">
                       {messages.data.items.map((message) => (
@@ -681,26 +715,20 @@ function CampaignDetail() {
                       )}
                     </p>
                   )}
-                  <NextPage next={messages.data?.next} onNext={setCursor} />
+                  <NextPage next={messages.data?.next} onNext={(cursor) => update({ cursor })} />
                 </State>
               ) : (
                 <p className="muted">{t('Your role does not allow viewing message content.')}</p>
               )}
             </section>
-            <div className="actions">
-              {permissions.includes('messages.cancel') &&
-                !['completed', 'cancelled'].includes(item.state) && (
-                  <Button variant="danger" onClick={() => setConfirm('cancel')}>
-                    {t('Cancel')}
-                  </Button>
-                )}
-              {selected.length > 0 && (
+            {selected.length > 0 && (
+              <div className="actions">
                 <Button variant="secondary" onClick={() => setConfirm('retry')}>
                   {t('Review resend (')}
                   {selected.length})
                 </Button>
-              )}
-            </div>
+              </div>
+            )}
             {permissions.includes('messages.cancel') && (
               <section className="panel danger-panel">
                 <div className="section-header">
@@ -712,10 +740,21 @@ function CampaignDetail() {
                       )}
                     </p>
                   </div>
-                  <Button variant="danger" onClick={() => setConfirm('delete')}>
-                    <Trash2 size={16} />
-                    {t('Delete campaign')}
-                  </Button>
+                  <div className="actions">
+                    {!['completed', 'cancelled'].includes(item.state) && (
+                      <Button variant="secondary" onClick={() => setConfirm('cancel')}>
+                        {t('Cancel sending')}
+                      </Button>
+                    )}
+                    <Button
+                      variant="danger"
+                      disabled={['queued', 'processing'].includes(item.state)}
+                      onClick={() => setConfirm('delete')}
+                    >
+                      <Trash2 size={16} />
+                      {t('Delete campaign')}
+                    </Button>
+                  </div>
                 </div>
               </section>
             )}
@@ -727,9 +766,9 @@ function CampaignDetail() {
                     : 'Confirm sending'
                   : confirm === 'retry'
                     ? 'Review resend'
-                    : confirm === 'delete'
-                      ? 'Delete campaign'
-                      : 'Cancel campaign'
+                    : confirm === 'cancel'
+                      ? 'Cancel sending'
+                      : 'Delete campaign'
               }
               open={confirm !== null}
               onClose={() => setConfirm(null)}
@@ -739,9 +778,9 @@ function CampaignDetail() {
                   ? `Approve ${item.total} personalized messages? This uses your center’s SMS balance. Pending/absent records and shared numbers must be reviewed before sending.`
                   : confirm === 'retry'
                     ? 'An uncertain message may already have reached the recipient. Sending again can deliver and charge twice. A new reviewable campaign will be created for only the selected messages.'
-                    : confirm === 'delete'
-                      ? 'Are you sure you want to permanently delete this message campaign and all its message records? This cannot be undone.'
-                      : 'Stop messages that have not started submitting? Accepted or in-flight messages cannot be recalled.'}
+                    : confirm === 'cancel'
+                      ? t('Stop unsent messages? Already submitted messages cannot be recalled.')
+                      : 'Are you sure you want to permanently delete this message campaign and all its message records? This cannot be undone.'}
               </p>
               <Alert error={action.error ?? retry.error ?? localError} />
               <div className="actions">
@@ -750,7 +789,7 @@ function CampaignDetail() {
                 </Button>
                 <Button
                   busy={action.isPending || retry.isPending}
-                  variant={confirm === 'cancel' || confirm === 'delete' ? 'danger' : 'primary'}
+                  variant={confirm === 'delete' || confirm === 'cancel' ? 'danger' : 'primary'}
                   onClick={() => {
                     if (confirm === 'delete') {
                       action.mutate(
@@ -771,7 +810,7 @@ function CampaignDetail() {
                           body: {
                             message_ids: selected,
                             acknowledge_duplicate_risk: true,
-                            idempotency_key: crypto.randomUUID(),
+                            idempotency_key: resend.key,
                           },
                         },
                         {
@@ -794,7 +833,7 @@ function CampaignDetail() {
                     }
                     action.mutate(
                       {
-                        path: `/campaigns/${id}/${confirm === 'send' ? 'approve' : 'cancel'}`,
+                        path: `/campaigns/${id}/${confirm === 'cancel' ? 'cancel' : 'approve'}`,
                         body: confirm === 'send' ? { scheduled_at: scheduledAt } : {},
                       },
                       { onSuccess: () => setConfirm(null) },
@@ -808,9 +847,9 @@ function CampaignDetail() {
                         : 'Confirm sending'
                       : confirm === 'retry'
                         ? 'Continue'
-                        : confirm === 'delete'
-                          ? 'Delete campaign'
-                          : 'Cancel',
+                        : confirm === 'cancel'
+                          ? 'Cancel sending'
+                          : 'Delete campaign',
                   )}
                 </Button>
               </div>

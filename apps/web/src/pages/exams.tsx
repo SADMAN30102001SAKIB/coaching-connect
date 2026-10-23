@@ -24,6 +24,8 @@ import {
   Page,
   State,
   useUnsaved,
+  useDraftSnapshot,
+  useListParams,
 } from '../ui';
 
 export default function ExamPages() {
@@ -42,7 +44,8 @@ interface ExamDetailData extends Exam {
   groups?: { id: string; name: string; count: number }[];
 }
 function ExamList() {
-  const [cursor, setCursor] = useState('');
+  const { params, update } = useListParams();
+  const cursor = params.get('cursor') ?? '';
   const [deletingExam, setDeletingExam] = useState<Exam | null>(null);
   const list = useData<Paged<Exam>>(`/exams?cursor=${encodeURIComponent(cursor)}`);
   const action = useAction();
@@ -52,7 +55,6 @@ function ExamList() {
     <Page
       eyebrow="LEARNING, IN FOCUS"
       title="Exams"
-      description="Set the exam once. Keep every result in its place."
       action={
         permissions.includes('exams.create') && (
           <Link className="button primary" to="/exams/new">
@@ -62,7 +64,7 @@ function ExamList() {
         )
       }
     >
-      <State pending={list.isPending} error={list.error}>
+      <State query={list}>
         {list.data?.items.length ? (
           <div className="exam-grid">
             {list.data.items.map((exam) => (
@@ -81,6 +83,7 @@ function ExamList() {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          action.reset();
                           setDeletingExam(exam);
                         }}
                       >
@@ -99,7 +102,7 @@ function ExamList() {
         ) : (
           <Empty />
         )}
-        <NextPage next={list.data?.next} onNext={setCursor} />
+        <NextPage next={list.data?.next} onNext={(cursor) => update({ cursor })} />
       </State>
       <Dialog
         title="Delete exam"
@@ -165,6 +168,7 @@ function CreateExam() {
         onSubmit={(e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
+          setError(null);
           try {
             const parsed = papers.map((p) => ({
               subject_id: p.subject_id,
@@ -192,94 +196,97 @@ function CreateExam() {
           }
         }}
       >
-        <section className="panel">
-          <div className="form-grid">
-            <Field label="Name">
-              <input name="name" required maxLength={160} />
-            </Field>
-            <Field label="Date">
-              <input name="date" type="date" required />
-            </Field>
-          </div>
-        </section>
-        <section className="panel">
-          <div className="section-header">
-            <h2>{t('Subject')}</h2>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={papers.length >= 30}
-              onClick={() => setPapers((all) => [...all, { subject_id: '', maximum: '' }])}
-            >
-              <Plus size={16} />
-              {t('Add subject')}
+        <fieldset className="form-fields form-stack" disabled={action.isPending}>
+          <section className="panel">
+            <div className="form-grid">
+              <Field label="Name">
+                <input name="name" required maxLength={160} />
+              </Field>
+              <Field label="Date">
+                <input name="date" type="date" required />
+              </Field>
+            </div>
+          </section>
+          <section className="panel">
+            <div className="section-header">
+              <h2>{t('Subject')}</h2>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={papers.length >= 30}
+                onClick={() => setPapers((all) => [...all, { subject_id: '', maximum: '' }])}
+              >
+                <Plus size={16} />
+                {t('Add subject')}
+              </Button>
+            </div>
+            <State query={subjects} compact>
+              <MoreChoices query={subjects} />
+            </State>
+            {papers.map((paper, i) => (
+              <div className="contact-editor" key={i}>
+                <div className="form-grid">
+                  <Field label="Subject">
+                    <select
+                      required
+                      value={paper.subject_id}
+                      onChange={(e) =>
+                        setPapers((all) =>
+                          all.map((p, index) =>
+                            index === i ? { ...p, subject_id: e.target.value } : p,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="">{t('Choose a subject')}</option>
+                      {subjects.data?.items.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Maximum marks">
+                    <input
+                      inputMode="decimal"
+                      required
+                      value={paper.maximum}
+                      onChange={(e) =>
+                        setPapers((all) =>
+                          all.map((p, index) =>
+                            index === i ? { ...p, maximum: e.target.value } : p,
+                          ),
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
+                {papers.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-label="Remove subject"
+                    onClick={() => setPapers((all) => all.filter((_, index) => index !== i))}
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {!subjects.isPending && !subjects.error && !subjects.data?.items.length && (
+              <Link to="/academic">{t('Create a subject first')}</Link>
+            )}
+          </section>
+          <Alert error={action.error ?? error} />
+          <div className="sticky-actions">
+            <Link to="/exams" className="button secondary">
+              {t('Cancel')}
+            </Link>
+            <Button type="submit" busy={action.isPending}>
+              {t('Create exam')}
             </Button>
           </div>
-          <Alert error={subjects.error} />
-          <MoreChoices query={subjects} />
-          {papers.map((paper, i) => (
-            <div className="contact-editor" key={i}>
-              <div className="form-grid">
-                <Field label="Subject">
-                  <select
-                    required
-                    value={paper.subject_id}
-                    onChange={(e) =>
-                      setPapers((all) =>
-                        all.map((p, index) =>
-                          index === i ? { ...p, subject_id: e.target.value } : p,
-                        ),
-                      )
-                    }
-                  >
-                    <option value="">{t('Choose a subject')}</option>
-                    {subjects.data?.items.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Maximum marks">
-                  <input
-                    inputMode="decimal"
-                    required
-                    value={paper.maximum}
-                    onChange={(e) =>
-                      setPapers((all) =>
-                        all.map((p, index) =>
-                          index === i ? { ...p, maximum: e.target.value } : p,
-                        ),
-                      )
-                    }
-                  />
-                </Field>
-              </div>
-              {papers.length > 1 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-label="Remove subject"
-                  onClick={() => setPapers((all) => all.filter((_, index) => index !== i))}
-                >
-                  <Trash2 size={16} />
-                </Button>
-              )}
-            </div>
-          ))}
-          {!subjects.data?.items.length && (
-            <Link to="/academic">{t('Create a subject first')}</Link>
-          )}
-        </section>
-        <Alert error={action.error ?? error} />
-        <div className="sticky-actions">
-          <Link to="/exams" className="button secondary">
-            {t('Cancel')}
-          </Link>
-          <Button type="submit" busy={action.isPending}>
-            {t('Create exam')}
-          </Button>
-        </div>
+        </fieldset>
       </form>
     </Page>
   );
@@ -325,7 +332,7 @@ function ExamDetail() {
         </div>
       }
     >
-      <State pending={exam.isPending} error={exam.error}>
+      <State query={exam}>
         {exam.data && (
           <>
             <div className="detail-strip">
@@ -383,7 +390,11 @@ function ExamDetail() {
                   </div>
                 </form>
               )}
-              <MoreChoices query={groups} />
+              {permissions.includes('exams.update') && (
+                <State query={groups} compact>
+                  <MoreChoices query={groups} />
+                </State>
+              )}
               <Alert error={action.error} />
               {action.isSuccess && (
                 <Alert success>
@@ -412,7 +423,10 @@ function ExamDetail() {
                         {permissions.includes('exams.update') && (
                           <Button
                             variant="danger"
-                            onClick={() => setRemoveGroup(g)}
+                            onClick={() => {
+                              removeAction.reset();
+                              setRemoveGroup(g);
+                            }}
                             title={t('Remove group from exam')}
                           >
                             <Trash2 size={14} />
@@ -428,7 +442,7 @@ function ExamDetail() {
             <div className="section-header">
               <div>
                 <h2>{t('Subjects')}</h2>
-                <p className="muted">{t('Configure subject papers and score limits')}</p>
+                <p className="muted">{t('Papers and score limits')}</p>
               </div>
               {permissions.includes('exams.update') && (
                 <Button variant="secondary" onClick={() => setPaperEdit('new')}>
@@ -490,20 +504,6 @@ function ExamDetail() {
                 )}
               </div>
             )}
-            {permissions.includes('messages.create') && exam.data.papers.length > 0 && (
-              <div className="exam-results-bar">
-                <div>
-                  <h3>{t('Publish Results')}</h3>
-                  <p className="muted">
-                    {t('Ready to share scores with students and parents via SMS?')}
-                  </p>
-                </div>
-                <Link className="button primary" to={`/messages/new?exam=${id}`}>
-                  <Send size={16} />
-                  {t('Send results')}
-                </Link>
-              </div>
-            )}
             {permissions.includes('exams.archive') && (
               <section className="panel danger-panel">
                 <div className="section-header">
@@ -515,7 +515,13 @@ function ExamDetail() {
                       )}
                     </p>
                   </div>
-                  <Button variant="danger" onClick={() => setConfirmDeleteExam(true)}>
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      action.reset();
+                      setConfirmDeleteExam(true);
+                    }}
+                  >
                     <Trash2 size={16} />
                     {t('Delete exam')}
                   </Button>
@@ -526,58 +532,34 @@ function ExamDetail() {
               title={paperEdit === 'new' ? 'Add subject' : 'Edit subject'}
               open={paperEdit !== null}
               onClose={() => setPaperEdit(null)}
+              refresh={exam.refetch}
             >
               {paperEdit && (
                 <PaperEditor
                   key={paperEdit === 'new' ? 'new' : paperEdit.id}
                   examId={id}
-                  paper={paperEdit === 'new' ? null : paperEdit}
+                  paper={
+                    paperEdit === 'new'
+                      ? null
+                      : (exam.data.papers.find((item) => item.id === paperEdit.id) ?? paperEdit)
+                  }
                   subjects={subjects.data?.items ?? []}
                   onDone={() => setPaperEdit(null)}
                 />
               )}
-              <MoreChoices query={subjects} />
+              {paperEdit === 'new' && permissions.includes('academic.read') && (
+                <State query={subjects} compact>
+                  <MoreChoices query={subjects} />
+                </State>
+              )}
             </Dialog>
-            <Dialog title="Edit" open={editing} onClose={() => setEditing(false)}>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const f = new FormData(e.currentTarget);
-                  action.mutate(
-                    {
-                      path: `/exams/${id}`,
-                      method: 'PATCH',
-                      body: {
-                        name: f.get('name'),
-                        exam_date: f.get('date'),
-                        version: exam.data.version,
-                        active: f.get('active') === 'on',
-                      },
-                    },
-                    { onSuccess: () => setEditing(false) },
-                  );
-                }}
-              >
-                <Field label="Name">
-                  <input name="name" defaultValue={exam.data.name} required />
-                </Field>
-                <Field label="Date">
-                  <input type="date" name="date" defaultValue={exam.data.exam_date} required />
-                </Field>
-                <label className="check">
-                  <input type="checkbox" name="active" defaultChecked={Boolean(exam.data.active)} />
-                  {t('Active')}
-                </label>
-                <Alert error={action.error} />
-                <div className="actions">
-                  <Button type="button" variant="secondary" onClick={() => setEditing(false)}>
-                    {t('Cancel')}
-                  </Button>
-                  <Button type="submit" busy={action.isPending}>
-                    {t('Save')}
-                  </Button>
-                </div>
-              </form>
+            <Dialog
+              title="Edit"
+              open={editing}
+              onClose={() => setEditing(false)}
+              refresh={exam.refetch}
+            >
+              <ExamEditor initial={exam.data} onDone={() => setEditing(false)} />
             </Dialog>
             <Dialog
               title="Remove group"
@@ -663,9 +645,64 @@ function ExamDetail() {
     </Page>
   );
 }
+function ExamEditor({
+  initial: incoming,
+  onDone,
+}: {
+  initial: ExamDetailData;
+  onDone: () => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const initial = useDraftSnapshot(incoming, dirty);
+  const action = useAction();
+  const { t } = useLocale();
+  return (
+    <form
+      key={initial.version}
+      onChange={() => setDirty(true)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        action.mutate(
+          {
+            path: `/exams/${initial.id}`,
+            method: 'PATCH',
+            body: {
+              name: form.get('name'),
+              exam_date: form.get('date'),
+              version: initial.version,
+              active: form.get('active') === 'on',
+            },
+          },
+          { onSuccess: onDone },
+        );
+      }}
+    >
+      <Field label="Name">
+        <input name="name" defaultValue={initial.name} required />
+      </Field>
+      <Field label="Date">
+        <input name="date" type="date" defaultValue={initial.exam_date} required />
+      </Field>
+      <label className="check">
+        <input name="active" type="checkbox" defaultChecked={Boolean(initial.active)} />
+        {t('Active')}
+      </label>
+      <Alert error={action.error} />
+      <div className="actions">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          {t('Cancel')}
+        </Button>
+        <Button type="submit" busy={action.isPending}>
+          {t('Save')}
+        </Button>
+      </div>
+    </form>
+  );
+}
 function PaperEditor({
   examId,
-  paper,
+  paper: incoming,
   subjects,
   onDone,
 }: {
@@ -674,14 +711,19 @@ function PaperEditor({
   subjects: Catalog[];
   onDone: () => void;
 }) {
+  const [dirty, setDirty] = useState(false);
+  const paper = useDraftSnapshot(incoming, dirty);
   const action = useAction();
   const [error, setError] = useState<unknown>();
   const { t } = useLocale();
   return (
     <form
+      key={paper?.version ?? 'new'}
+      onChange={() => setDirty(true)}
       onSubmit={(event) => {
         event.preventDefault();
         const f = new FormData(event.currentTarget);
+        setError(undefined);
         try {
           const maximum = toScore(formText(f, 'maximum'));
           action.mutate(
@@ -733,8 +775,9 @@ function PaperEditor({
 }
 function Marks() {
   const { id = '', paperId = '' } = useParams();
-  const [cursor, setCursor] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const { params, update } = useListParams();
+  const cursor = params.get('cursor') ?? '';
+  const selectedGroup = params.get('group') ?? '';
   const marks = useData<{
     paper: Paper;
     items: Mark[];
@@ -744,26 +787,25 @@ function Marks() {
     `/exams/${id}/papers/${paperId}/marks?cursor=${cursor}${selectedGroup ? `&group_id=${selectedGroup}` : ''}`,
   );
   return (
-    <State pending={marks.isPending} error={marks.error}>
+    <State query={marks}>
       {marks.data && (
         <MarksForm
-          key={`${paperId}:${cursor}:${selectedGroup}:${marks.dataUpdatedAt}`}
+          key={`${id}:${paperId}:${cursor}:${selectedGroup}`}
           data={marks.data}
           exam={id}
           paper={paperId}
           selectedGroup={selectedGroup}
           onSelectGroup={(gid) => {
-            setSelectedGroup(gid);
-            setCursor('');
+            update({ group: gid, cursor: '' });
           }}
-          nextPage={setCursor}
+          nextPage={(cursor) => update({ cursor })}
         />
       )}
     </State>
   );
 }
 function MarksForm({
-  data,
+  data: incoming,
   exam,
   paper,
   selectedGroup,
@@ -790,16 +832,14 @@ function MarksForm({
   const { t } = useLocale();
   const [error, setError] = useState<unknown>(null);
   const dirty = Object.keys(changes).length > 0;
+  const data = useDraftSnapshot(incoming, dirty);
   const unsaved = useUnsaved(dirty);
 
   const handleGroupChange = (gid: string) => {
     if (gid === selectedGroup) return;
     if (dirty) {
-      if (
-        !window.confirm(t('You have unsaved marks. Save or discard them before switching groups.'))
-      ) {
-        return;
-      }
+      setError(new Error('Save or discard your marks before switching groups.'));
+      return;
     }
     onSelectGroup(gid);
   };
@@ -808,11 +848,6 @@ function MarksForm({
       eyebrow="Exams"
       title="Enter marks"
       description={`Maximum: ${formatScore(data.paper.maximum)} · ${t('Zero and absent are different results.')}`}
-      action={
-        <Link className="button secondary" to={`/exams/${exam}`}>
-          {t('Back')}
-        </Link>
-      }
     >
       {unsaved.prompt}
       <Alert error={action.error ?? error} />
@@ -826,7 +861,6 @@ function MarksForm({
             onClick={() => handleGroupChange('')}
           >
             <span>{t('All groups')}</span>
-            <span className="chip-count">{data.groups.reduce((sum, g) => sum + g.count, 0)}</span>
           </button>
           {data.groups.map((g) => (
             <button
@@ -846,6 +880,7 @@ function MarksForm({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          setError(null);
           try {
             const values = data.items
               .filter((row) => changes[row.student_id])
@@ -868,119 +903,138 @@ function MarksForm({
           }
         }}
       >
-        <section className="panel flush">
-          {data.items.length ? (
-            <div className="marks-list">
-              {data.items.map((row, index) => {
-                const current = changes[row.student_id] ?? {
-                  status: row.status === 'absent' ? 'absent' : 'scored',
-                  value: row.score === null ? '' : formatScore(row.score),
-                };
-                return (
-                  <div
-                    className={`mark-row ${changes[row.student_id] ? 'changed' : ''}`}
-                    key={row.student_id}
-                  >
-                    <span className="roll-number">{index + 1}</span>
-                    <div className="mark-student">
-                      <strong>{row.name}</strong>
-                      <small>
-                        {row.identifier || t('Student')}
-                        {row.group_name ? ` · ${row.group_name}` : ''}
-                      </small>
-                    </div>
-                    <label className="sr-only" htmlFor={`status-${row.student_id}`}>
-                      {t('Result status for')} {row.name}
-                    </label>
-                    <select
-                      id={`status-${row.student_id}`}
-                      value={current.status}
-                      disabled={!permissions.includes('results.update')}
-                      onChange={(e) => {
-                        const status = e.target.value as ResultStatus;
-                        setChanges((all) => ({
-                          ...all,
-                          [row.student_id]: {
-                            ...current,
-                            status,
-                            value: status === 'scored' ? current.value : '',
-                          },
-                        }));
-                      }}
+        <fieldset disabled={action.isPending} className="form-fields">
+          <section className="panel flush">
+            {data.items.length ? (
+              <div className="marks-list">
+                {data.items.map((row, index) => {
+                  const current = changes[row.student_id] ?? {
+                    status: row.status,
+                    value: row.score === null ? '' : formatScore(row.score),
+                  };
+                  return (
+                    <div
+                      className={`mark-row ${changes[row.student_id] ? 'changed' : ''}`}
+                      key={row.student_id}
                     >
-                      {(['scored', 'absent'] as const).map((status) => (
-                        <option key={status} value={status}>
-                          {t(status.charAt(0).toUpperCase() + status.slice(1))}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="sr-only" htmlFor={`score-${row.student_id}`}>
-                      {t('Marks for')} {row.name}
-                    </label>
-                    <input
-                      id={`score-${row.student_id}`}
-                      className="score-input"
-                      inputMode="decimal"
-                      placeholder="—"
-                      value={current.value}
-                      disabled={
-                        !permissions.includes('results.update') || current.status !== 'scored'
-                      }
-                      onChange={(e) =>
-                        setChanges((all) => ({
-                          ...all,
-                          [row.student_id]: { ...current, value: e.target.value },
-                        }))
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <Empty
-              title={selectedGroup ? 'No students in this group' : 'No participants'}
-              description={
-                selectedGroup
-                  ? 'No students from this group are participating in this exam.'
-                  : 'Add students from a group on the exam page first.'
-              }
-              action={
-                !selectedGroup && (
-                  <Link className="button primary" to={`/exams/${exam}`}>
-                    {t('Add participating groups')}
-                  </Link>
-                )
-              }
-            />
-          )}
-        </section>
-        <div className="sticky-actions">
-          <span aria-live="polite">
-            {dirty ? `${Object.keys(changes).length} ${t('Unsaved changes')}` : null}
-          </span>
-          <div className="actions">
-            {data.next && (
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={dirty}
-                onClick={() => {
-                  if (data.next) nextPage(data.next);
-                }}
-              >
-                {t('Next')}
-              </Button>
+                      <span className="roll-number">{index + 1}</span>
+                      <div className="mark-student">
+                        <strong>{row.name}</strong>
+                        <small>
+                          {row.identifier || t('Student')}
+                          {row.group_name ? ` · ${row.group_name}` : ''}
+                        </small>
+                      </div>
+                      <label className="sr-only" htmlFor={`status-${row.student_id}`}>
+                        {t('Result status for')} {row.name}
+                      </label>
+                      <select
+                        id={`status-${row.student_id}`}
+                        value={current.status}
+                        disabled={!permissions.includes('results.update')}
+                        onChange={(e) => {
+                          const status = e.target.value as ResultStatus;
+                          setChanges((all) => ({
+                            ...all,
+                            [row.student_id]: {
+                              ...current,
+                              status,
+                              value: status === 'scored' ? current.value : '',
+                            },
+                          }));
+                        }}
+                      >
+                        {(['scored', 'absent', 'pending', 'exempt'] as const).map((status) => (
+                          <option key={status} value={status}>
+                            {t(status.charAt(0).toUpperCase() + status.slice(1))}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="sr-only" htmlFor={`score-${row.student_id}`}>
+                        {t('Marks for')} {row.name}
+                      </label>
+                      <input
+                        id={`score-${row.student_id}`}
+                        className="score-input"
+                        inputMode="decimal"
+                        placeholder="—"
+                        value={current.value}
+                        disabled={
+                          !permissions.includes('results.update') || current.status !== 'scored'
+                        }
+                        onChange={(e) =>
+                          setChanges((all) => ({
+                            ...all,
+                            [row.student_id]: {
+                              ...current,
+                              status: 'scored',
+                              value: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <Empty
+                title={selectedGroup ? 'No students in this group' : 'No participants'}
+                description={
+                  selectedGroup
+                    ? 'No students from this group are participating in this exam.'
+                    : 'Add students from a group on the exam page first.'
+                }
+                action={
+                  !selectedGroup && (
+                    <Link className="button primary" to={`/exams/${exam}`}>
+                      {t('Add participating groups')}
+                    </Link>
+                  )
+                }
+              />
             )}
-            <Button
-              type="submit"
-              busy={action.isPending}
-              disabled={!dirty || !permissions.includes('results.update')}
-            >
-              {t('Save marks')}
-            </Button>
+          </section>
+          <div className="sticky-actions">
+            <span aria-live="polite">
+              {dirty ? `${Object.keys(changes).length} ${t('Unsaved changes')}` : null}
+            </span>
+            <div className="actions">
+              {dirty && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setChanges({});
+                    setError(null);
+                    action.reset();
+                  }}
+                >
+                  {t('Discard changes')}
+                </Button>
+              )}
+              {data.next && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={dirty}
+                  onClick={() => {
+                    if (data.next) nextPage(data.next);
+                  }}
+                >
+                  {t('Next')}
+                </Button>
+              )}
+              <Button
+                type="submit"
+                busy={action.isPending}
+                disabled={!dirty || !permissions.includes('results.update')}
+              >
+                {t('Save marks')}
+              </Button>
+            </div>
           </div>
-        </div>
+        </fieldset>
       </form>
     </Page>
   );

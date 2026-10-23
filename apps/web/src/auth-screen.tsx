@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, Check, MessageSquareText, ShieldCheck } from 'lu
 import { formText, request } from './api';
 import { useLocale } from './i18n';
 import { ThemePicker } from './components/ThemePicker';
-import { Alert, Button, Field } from './ui';
+import { Alert, Button, Field, State } from './ui';
 
 export function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
   const { t } = useLocale();
@@ -57,12 +57,14 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
   const { t, locale, toggle } = useLocale();
   const invitation = useQuery({
     queryKey: ['invitation', token],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<{ name: string; existing: number }>(
         `/auth/invitation?token=${encodeURIComponent(token ?? '')}`,
+        'GET',
+        undefined,
+        signal,
       ),
     enabled: Boolean(token),
-    retry: false,
   });
   const mutation = useMutation({
     mutationFn: async (form: FormData) => {
@@ -164,77 +166,88 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
                   ? invitation.data?.name
                   : t('Your coaching center, connected.')}
               </p>
-              <Alert error={mutation.error ?? invitation.error} />
+              <Alert error={mutation.error} />
+              {mode === 'activate' && (
+                <State query={invitation} compact>
+                  {null}
+                </State>
+              )}
               {success && (
                 <Alert success>{t('Password reset. Sign in with your new password.')}</Alert>
               )}
               <form
+                key={mode}
                 onSubmit={(e) => {
                   e.preventDefault();
                   mutation.mutate(new FormData(e.currentTarget));
                 }}
               >
-                {(mode === 'bootstrap' || mode === 'activate') && (
-                  <Field label="Your name">
-                    <input name="name" autoComplete="name" required maxLength={160} />
-                  </Field>
-                )}
-                {mode === 'bootstrap' && (
-                  <Field label="Setup key">
-                    <input
-                      name="token"
-                      type="password"
-                      required
-                      minLength={32}
-                      autoComplete="off"
-                    />
-                  </Field>
-                )}
-                {(mode !== 'activate' || invitation.data?.existing === 1) && (
-                  <Field label="Phone number">
-                    <input
-                      name="phone"
-                      type="tel"
-                      autoComplete="username"
-                      placeholder="01XXXXXXXXX"
-                      required
-                    />
-                  </Field>
-                )}
-                {mode === 'recover' && (
-                  <Field label="Recovery code">
-                    <input name="code" autoComplete="off" required minLength={16} />
-                  </Field>
-                )}
-                <Field
-                  label={
-                    mode === 'recover' || mode === 'activate' || mode === 'bootstrap'
-                      ? 'New password'
-                      : 'Password'
-                  }
-                  hint={
-                    mode === 'login' || invitation.data?.existing
-                      ? undefined
-                      : 'Use at least 15 characters.'
-                  }
+                <fieldset
+                  className="form-fields"
+                  disabled={mutation.isPending || (mode === 'activate' && !invitation.data)}
                 >
-                  <input
-                    name="password"
-                    type="password"
-                    autoComplete={
-                      mode === 'login' || invitation.data?.existing
-                        ? 'current-password'
-                        : 'new-password'
+                  {(mode === 'bootstrap' || mode === 'activate') && (
+                    <Field label="Your name">
+                      <input name="name" autoComplete="name" required maxLength={160} />
+                    </Field>
+                  )}
+                  {mode === 'bootstrap' && (
+                    <Field label="Setup key">
+                      <input
+                        name="token"
+                        type="password"
+                        required
+                        minLength={32}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  )}
+                  {(mode !== 'activate' || invitation.data?.existing === 1) && (
+                    <Field label="Phone number">
+                      <input
+                        name="phone"
+                        type="tel"
+                        autoComplete="username"
+                        placeholder="01XXXXXXXXX"
+                        required
+                      />
+                    </Field>
+                  )}
+                  {mode === 'recover' && (
+                    <Field label="Recovery code">
+                      <input name="code" autoComplete="off" required minLength={16} />
+                    </Field>
+                  )}
+                  <Field
+                    label={
+                      mode === 'recover' || mode === 'activate' || mode === 'bootstrap'
+                        ? 'New password'
+                        : 'Password'
                     }
-                    required
-                    minLength={mode === 'login' || invitation.data?.existing ? 1 : 15}
-                    maxLength={128}
-                  />
-                </Field>
-                <Button type="submit" busy={mutation.isPending} className="full">
-                  {t(invitation.data?.existing ? 'Sign in to accept' : title)}
-                  <ArrowRight size={18} />
-                </Button>
+                    hint={
+                      mode === 'login' || invitation.data?.existing
+                        ? undefined
+                        : 'Use at least 15 characters.'
+                    }
+                  >
+                    <input
+                      name="password"
+                      type="password"
+                      autoComplete={
+                        mode === 'login' || invitation.data?.existing
+                          ? 'current-password'
+                          : 'new-password'
+                      }
+                      required
+                      minLength={mode === 'login' || invitation.data?.existing ? 1 : 15}
+                      maxLength={128}
+                    />
+                  </Field>
+                  <Button type="submit" busy={mutation.isPending} className="full">
+                    {t(invitation.data?.existing ? 'Sign in to accept' : title)}
+                    <ArrowRight size={18} />
+                  </Button>
+                </fieldset>
               </form>
               {mode === 'login' ? (
                 <div className="auth-links">

@@ -1,6 +1,31 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const bn: Record<string, string> = {
+  'This record changed elsewhere. Your edits are kept. Discard changes or reopen the editor to load the latest saved values.':
+    'অন্য কেউ এই তথ্য পরিবর্তন করেছেন। আপনার লেখা রাখা হয়েছে। সর্বশেষ সংরক্ষিত তথ্য দেখতে পরিবর্তন বাতিল করুন বা এডিটর আবার খুলুন।',
+  'Sign out and discard unsaved changes?': 'সংরক্ষণ না করা পরিবর্তন বাতিল করে সাইন আউট করবেন?',
+  'Unsaved changes will be discarded.': 'সংরক্ষণ না করা পরিবর্তন বাতিল হবে।',
+  'Updating…': 'হালনাগাদ হচ্ছে…',
+  'Showing saved data. Reconnect or try again to update.':
+    'সংরক্ষিত তথ্য দেখানো হচ্ছে। হালনাগাদ করতে ইন্টারনেটে যুক্ত হন বা আবার চেষ্টা করুন।',
+  'You are offline. Reconnect to load this screen.':
+    'আপনি অফলাইনে আছেন। এই পৃষ্ঠা খুলতে ইন্টারনেটে যুক্ত হন।',
+  'Connection interrupted. Reconnecting will refresh this screen.':
+    'সংযোগ বিচ্ছিন্ন হয়েছে। সংযোগ ফিরলে তথ্য হালনাগাদ হবে।',
+  'Confirmation was not received. Check the latest records before trying again; your change may already have been saved.':
+    'নিশ্চিতকরণ পাওয়া যায়নি। আবার চেষ্টা করার আগে সর্বশেষ তথ্য দেখুন; আপনার পরিবর্তন ইতিমধ্যে সংরক্ষিত হয়ে থাকতে পারে।',
+  'This request could not finish. Please try again.': 'কাজটি শেষ করা যায়নি। আবার চেষ্টা করুন।',
+  'Discard unsaved changes?': 'সংরক্ষণ না করা পরিবর্তন বাতিল করবেন?',
+  'Discard changes': 'পরিবর্তন বাতিল করুন',
+  'Save or discard your marks before switching groups.':
+    'গ্রুপ বদলানোর আগে নম্বর সংরক্ষণ করুন বা পরিবর্তন বাতিল করুন।',
+  'Could not update choices. Try again.': 'তালিকা হালনাগাদ করা যায়নি। আবার চেষ্টা করুন।',
+  'No matches in loaded choices. Load more to continue searching.':
+    'লোড হওয়া তালিকায় মিল নেই। খোঁজা চালিয়ে যেতে আরও লোড করুন।',
+  Choices: 'বিকল্পসমূহ',
+  'Cancel sending': 'পাঠানো বাতিল করুন',
+  'Stop unsent messages? Already submitted messages cannot be recalled.':
+    'বাকি বার্তা পাঠানো বন্ধ করবেন? ইতিমধ্যে পাঠানো বার্তা ফেরত নেওয়া যাবে না।',
   Appearance: 'থিম',
   Light: 'হালকা',
   Dark: 'ডার্ক',
@@ -254,6 +279,7 @@ const bn: Record<string, string> = {
   'Add contact': 'যোগাযোগ যোগ করুন',
   'Permission to send SMS': 'এসএমএস পাঠানোর অনুমতি',
   Archive: 'আর্কাইভ',
+  Delete: 'মুছুন',
   'Send message': 'বার্তা পাঠান',
   'Phone numbers for SMS notifications and guardian updates':
     'এসএমএস বিজ্ঞপ্তি ও অভিভাবক যোগাযোগের জন্য ফোন নম্বর',
@@ -265,7 +291,7 @@ const bn: Record<string, string> = {
   'Add subject': 'বিষয় যোগ করুন',
   'Add another subject paper': 'আরেকটি বিষয় যোগ করুন',
   Subjects: 'বিষয়সমূহ',
-  'Configure subject papers and score limits': 'বিষয় ও পূর্ণমান নির্ধারণ করুন',
+  'Papers and score limits': 'বিষয় ও পূর্ণমান নির্ধারণ',
   'Publish Results': 'ফলাফল প্রকাশ ও পাঠান',
   'Ready to share scores with students and parents via SMS?':
     'শিক্ষার্থী ও অভিভাবকদের এসএমএস-এর মাধ্যমে নম্বর পাঠাতে প্রস্তুত?',
@@ -342,6 +368,7 @@ const bn: Record<string, string> = {
   'Role name': 'ভূমিকার নাম',
   'Create role': 'ভূমিকা তৈরি করুন',
   'Invite staff': 'কর্মী আমন্ত্রণ',
+  Invite: 'আমন্ত্রণ',
   Permissions: 'অনুমতি',
   Read: 'দেখা',
   Create: 'তৈরি',
@@ -411,6 +438,12 @@ const bn: Record<string, string> = {
   'This will permanently delete this exam, all associated subject papers, and all student results. This cannot be undone.':
     'এটি এই পরীক্ষা, সংশ্লিষ্ট সমস্ত বিষয়ের প্রশ্নপত্র এবং সমস্ত শিক্ষার্থীর ফলাফল স্থায়ীভাবে মুছে ফেলবে। এটি আর ফিরিয়ে আনা যাবে না।',
   Confirm: 'নিশ্চিত করুন',
+  'Search groups…': 'গ্রুপ খুঁজুন…',
+  'Choose groups…': 'গ্রুপ নির্বাচন করুন…',
+  'groups selected': 'টি গ্রুপ নির্বাচিত',
+  'No groups selected': 'কোনো গ্রুপ নির্বাচিত নয়',
+  'Select the groups or batches this student belongs to.':
+    'শিক্ষার্থীর গ্রুপ বা ব্যাচ নির্বাচন করুন।',
   'Search exams…': 'পরীক্ষা খুঁজুন…',
   'Search batches…': 'ব্যাচ খুঁজুন…',
   'Choose exams…': 'পরীক্ষা নির্বাচন করুন…',

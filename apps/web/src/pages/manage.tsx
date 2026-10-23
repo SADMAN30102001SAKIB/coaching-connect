@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link } from 'react-router';
 import { Copy, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 import {
   actions,
@@ -17,7 +17,20 @@ import {
 import { formText, useAction, useCenter, useData, useChoices } from '../api';
 import { useLocale } from '../i18n';
 import { BalanceCard } from '../components/BalanceCard';
-import { Alert, Button, Dialog, Empty, Field, NextPage, Page, State, MoreChoices } from '../ui';
+import {
+  Alert,
+  Button,
+  Dialog,
+  Empty,
+  Field,
+  NextPage,
+  Page,
+  State,
+  MoreChoices,
+  useDraftSnapshot,
+  useUnsaved,
+  useListParams,
+} from '../ui';
 
 export default function ManagePages({
   section,
@@ -41,7 +54,8 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
   const { permissions } = useCenter();
   const { t } = useLocale();
   const kind: Catalog['kind'] = groups ? 'group' : 'subject';
-  const [cursor, setCursor] = useState('');
+  const { params, update: updateParams } = useListParams();
+  const cursor = params.get('cursor') ?? '';
   const [edit, setEdit] = useState<Catalog | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Catalog | null>(null);
   const [selected, setSelected] = useState<Catalog | null>(null);
@@ -55,11 +69,6 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
     <Page
       eyebrow="MAKE IT YOURS"
       title={groups ? 'Groups' : 'Subjects'}
-      description={
-        groups
-          ? 'The right students, together. Reuse a batch across exams.'
-          : 'Add and manage subjects for your coaching center.'
-      }
       action={
         permissions.includes(`${prefix}.create`) && (
           <Button onClick={() => setEdit('new')}>
@@ -69,7 +78,7 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
         )
       }
     >
-      <State pending={list.isPending} error={list.error}>
+      <State query={list}>
         {list.data?.items.length ? (
           <section className="panel flush">
             {list.data.items.map((item) => (
@@ -97,7 +106,10 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
                     variant="ghost"
                     className="danger-icon-btn"
                     aria-label={`Delete ${item.name}`}
-                    onClick={() => setDeleting(item)}
+                    onClick={() => {
+                      action.reset();
+                      setDeleting(item);
+                    }}
                   >
                     <Trash2 size={17} />
                   </Button>
@@ -115,7 +127,7 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
             }
           />
         )}
-        <NextPage next={list.data?.next} onNext={setCursor} />
+        <NextPage next={list.data?.next} onNext={(cursor) => updateParams({ cursor })} />
       </State>
       <Dialog
         title={
@@ -129,46 +141,20 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
         }
         open={edit !== null}
         onClose={() => setEdit(null)}
+        refresh={list.refetch}
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            action.mutate(
-              {
-                path: edit && edit !== 'new' ? `/catalog/${edit.id}` : '/catalog',
-                method: edit && edit !== 'new' ? 'PATCH' : 'POST',
-                body: {
-                  name: f.get('name'),
-                  kind,
-                  ...(edit && edit !== 'new'
-                    ? { version: edit.version, active: f.get('active') === 'on' ? 1 : 0 }
-                    : {}),
-                },
-              },
-              { onSuccess: () => setEdit(null) },
-            );
-          }}
-          key={edit && edit !== 'new' ? edit.id : 'new'}
-        >
-          <Field label="Name">
-            <input
-              name="name"
-              defaultValue={edit && edit !== 'new' ? edit.name : ''}
-              required
-              maxLength={160}
-            />
-          </Field>
-          <Alert error={action.error} />
-          <div className="actions">
-            <Button type="button" variant="secondary" onClick={() => setEdit(null)}>
-              {t('Cancel')}
-            </Button>
-            <Button type="submit" busy={action.isPending}>
-              {t('Save')}
-            </Button>
-          </div>
-        </form>
+        {edit && (
+          <CatalogForm
+            key={edit === 'new' ? 'new' : edit.id}
+            kind={kind}
+            initial={
+              edit === 'new'
+                ? undefined
+                : (list.data?.items.find((item) => item.id === edit.id) ?? edit)
+            }
+            onDone={() => setEdit(null)}
+          />
+        )}
       </Dialog>
       <Dialog
         title={groups ? 'Delete group' : 'Delete subject'}
@@ -210,7 +196,7 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
         onClose={() => setSelected(null)}
       >
         <MoreChoices query={members} />
-        <State pending={members.isPending} error={members.error}>
+        <State query={members}>
           {members.data?.items.length ? (
             members.data.items.map((student) => (
               <Link className="record-row" to={`/students/${student.id}`} key={student.id}>
@@ -229,8 +215,58 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
     </Page>
   );
 }
+function CatalogForm({
+  initial: incoming,
+  kind,
+  onDone,
+}: {
+  initial: Catalog | undefined;
+  kind: Catalog['kind'];
+  onDone: () => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const initial = useDraftSnapshot(incoming, dirty);
+  const action = useAction();
+  const { t } = useLocale();
+  return (
+    <form
+      key={initial?.version ?? 'new'}
+      onChange={() => setDirty(true)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        action.mutate(
+          {
+            path: initial ? `/catalog/${initial.id}` : '/catalog',
+            method: initial ? 'PATCH' : 'POST',
+            body: {
+              name: form.get('name'),
+              kind,
+              ...(initial ? { version: initial.version, active: initial.active } : {}),
+            },
+          },
+          { onSuccess: onDone },
+        );
+      }}
+    >
+      <Field label="Name">
+        <input name="name" defaultValue={initial?.name ?? ''} required maxLength={160} />
+      </Field>
+      <Alert error={action.error} />
+      <div className="actions">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          {t('Cancel')}
+        </Button>
+        <Button type="submit" busy={action.isPending}>
+          {t('Save')}
+        </Button>
+      </div>
+    </form>
+  );
+}
 function Templates() {
-  const [cursor, setCursor] = useState('');
+  const { params, update: updateParams } = useListParams();
+  const cursor = params.get('cursor') ?? '';
   const templates = useData<Paged<Template>>(`/templates?cursor=${encodeURIComponent(cursor)}`);
   const { permissions } = useCenter();
   const { t } = useLocale();
@@ -241,7 +277,6 @@ function Templates() {
     <Page
       eyebrow="WRITE ONCE. MAKE IT PERSONAL."
       title="Templates"
-      description="Keep your voice consistent. Let the student details change."
       action={
         permissions.includes('templates.create') && (
           <Button onClick={() => setEdit('new')}>
@@ -251,32 +286,37 @@ function Templates() {
         )
       }
     >
-      <State pending={templates.isPending} error={templates.error}>
+      <State query={templates}>
         {templates.data?.items.length ? (
           <div className="exam-grid">
             {templates.data.items.map((template) => (
               <section className="panel template-card" key={template.id}>
                 <div className="section-header">
                   <span className="mini-label">{template.scope}</span>
-                  {permissions.includes('templates.update') && (
-                    <Button
-                      variant="ghost"
-                      onClick={() => setEdit(template)}
-                      aria-label={`Edit ${template.name}`}
-                    >
-                      <Pencil size={17} />
-                    </Button>
-                  )}
-                  {permissions.includes('templates.archive') && (
-                    <Button
-                      variant="ghost"
-                      className="danger-icon-btn"
-                      onClick={() => setDeleting(template)}
-                      aria-label={`Delete ${template.name}`}
-                    >
-                      <Trash2 size={17} />
-                    </Button>
-                  )}
+                  <div className="template-actions">
+                    {permissions.includes('templates.update') && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => setEdit(template)}
+                        aria-label={`Edit ${template.name}`}
+                      >
+                        <Pencil size={17} />
+                      </Button>
+                    )}
+                    {permissions.includes('templates.archive') && (
+                      <Button
+                        variant="ghost"
+                        className="danger-icon-btn"
+                        onClick={() => {
+                          action.reset();
+                          setDeleting(template);
+                        }}
+                        aria-label={`Delete ${template.name}`}
+                      >
+                        <Trash2 size={17} />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <h2>{template.name}</h2>
                 <p className="message-text">{template.body}</p>
@@ -286,17 +326,22 @@ function Templates() {
         ) : (
           <Empty />
         )}
-        <NextPage next={templates.data?.next} onNext={setCursor} />
+        <NextPage next={templates.data?.next} onNext={(cursor) => updateParams({ cursor })} />
       </State>
       <Dialog
         title={edit === 'new' ? 'Create template' : 'Edit'}
         open={edit !== null}
         onClose={() => setEdit(null)}
+        refresh={templates.refetch}
       >
         {edit && (
           <TemplateForm
             key={edit === 'new' ? 'new' : edit.id}
-            initial={edit === 'new' ? undefined : edit}
+            initial={
+              edit === 'new'
+                ? undefined
+                : (templates.data?.items.find((item) => item.id === edit.id) ?? edit)
+            }
             onDone={() => setEdit(null)}
           />
         )}
@@ -363,6 +408,7 @@ export function VariableEditor({
           <button
             type="button"
             key={variable}
+            data-edits-form
             onClick={() => {
               const start = ref.current?.selectionStart ?? body.length;
               const end = ref.current?.selectionEnd ?? start;
@@ -381,13 +427,29 @@ export function VariableEditor({
     </>
   );
 }
-function TemplateForm({ initial, onDone }: { initial: Template | undefined; onDone: () => void }) {
+function TemplateForm({
+  initial: incoming,
+  onDone,
+}: {
+  initial: Template | undefined;
+  onDone: () => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const initial = useDraftSnapshot(incoming, dirty);
   const [scope, setScope] = useState<TemplateScope>(initial?.scope ?? 'summary');
   const [body, setBody] = useState(initial?.body ?? '');
+  const [loaded, setLoaded] = useState(initial);
+  if (initial !== loaded) {
+    setLoaded(initial);
+    setScope(initial?.scope ?? 'summary');
+    setBody(initial?.body ?? '');
+  }
   const action = useAction();
   const { t } = useLocale();
   return (
     <form
+      key={initial?.version ?? 'new'}
+      onChange={() => setDirty(true)}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -399,9 +461,7 @@ function TemplateForm({ initial, onDone }: { initial: Template | undefined; onDo
               name: f.get('name'),
               scope,
               body,
-              ...(initial
-                ? { version: initial.version, active: f.get('active') === 'on' ? 1 : 0 }
-                : {}),
+              ...(initial ? { version: initial.version } : {}),
             },
           },
           { onSuccess: onDone },
@@ -418,7 +478,14 @@ function TemplateForm({ initial, onDone }: { initial: Template | undefined; onDo
           <option value="announcement">{t('Announcement')}</option>
         </select>
       </Field>
-      <VariableEditor body={body} setBody={setBody} scope={scope} />
+      <VariableEditor
+        body={body}
+        setBody={(value) => {
+          setBody(value);
+          setDirty(true);
+        }}
+        scope={scope}
+      />
       <Alert error={action.error} />
       <div className="actions">
         <Button type="button" variant="secondary" onClick={onDone}>
@@ -456,15 +523,21 @@ function Staff() {
       eyebrow="CLEAR ROLES. SHARED PROGRESS."
       title="Staff & roles"
       action={
-        <Button onClick={() => setMember('new')}>
+        <Button
+          onClick={() => {
+            action.reset();
+            update.reset();
+            setMember('new');
+          }}
+        >
           <Plus size={18} />
-          {t('Invite staff')}
+          {t('Invite')}
         </Button>
       }
     >
       <Alert error={update.error} />
       <MoreChoices query={staff} />
-      <State pending={staff.isPending} error={staff.error}>
+      <State query={staff}>
         <section className="panel">
           <h2>{t('Staff & roles')}</h2>
           {staff.data?.items.map((person) => (
@@ -479,7 +552,14 @@ function Staff() {
               {person.id === center.owner_id ? (
                 <span className="badge accepted">{t('Admin')}</span>
               ) : (
-                <Button variant="secondary" onClick={() => setMember(person)}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    action.reset();
+                    update.reset();
+                    setMember(person);
+                  }}
+                >
                   {t('Edit')}
                 </Button>
               )}
@@ -496,7 +576,7 @@ function Staff() {
           </Button>
         </div>
         <MoreChoices query={roles} />
-        <State pending={roles.isPending} error={roles.error}>
+        <State query={roles}>
           {roles.data?.items.length ? (
             roles.data.items.map((item) => (
               <div className="record-row" key={item.id}>
@@ -517,7 +597,10 @@ function Staff() {
                   variant="ghost"
                   className="danger-icon-btn"
                   aria-label={`Delete ${item.name}`}
-                  onClick={() => setDeletingRole(item)}
+                  onClick={() => {
+                    update.reset();
+                    setDeletingRole(item);
+                  }}
                 >
                   <Trash2 size={17} />
                 </Button>
@@ -532,7 +615,13 @@ function Staff() {
           )}
         </State>
       </section>
-      <Button variant="secondary" onClick={() => setTransfer(true)}>
+      <Button
+        variant="secondary"
+        onClick={() => {
+          update.reset();
+          setTransfer(true);
+        }}
+      >
         {t('Transfer ownership')}
       </Button>
       <Dialog
@@ -622,11 +711,16 @@ function Staff() {
         title={role === 'new' ? 'Create role' : 'Edit'}
         open={role !== null}
         onClose={() => setRole(null)}
+        refresh={roles.refetch}
       >
         {role && (
           <RoleEditor
             key={role === 'new' ? 'new' : role.id}
-            initial={role === 'new' ? undefined : role}
+            initial={
+              role === 'new'
+                ? undefined
+                : (roles.data?.items.find((item) => item.id === role.id) ?? role)
+            }
             onDone={() => setRole(null)}
           />
         )}
@@ -683,7 +777,6 @@ function Staff() {
               {
                 onSuccess: () => {
                   setTransfer(false);
-                  location.reload();
                 },
               },
             );
@@ -715,14 +808,29 @@ function Staff() {
     </Page>
   );
 }
-function RoleEditor({ initial, onDone }: { initial: Role | undefined; onDone: () => void }) {
+function RoleEditor({
+  initial: incoming,
+  onDone,
+}: {
+  initial: Role | undefined;
+  onDone: () => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const initial = useDraftSnapshot(incoming, dirty);
   const [grants, setGrants] = useState(initial?.permissions ?? []);
+  const [loaded, setLoaded] = useState(initial);
+  if (initial !== loaded) {
+    setLoaded(initial);
+    setGrants(initial?.permissions ?? []);
+  }
   const action = useAction();
   const { t } = useLocale();
   const grant = (permission: string, checked: boolean) =>
     setGrants((all) => (checked ? [...all, permission] : all.filter((p) => p !== permission)));
   return (
     <form
+      key={initial?.version ?? 'new'}
+      onChange={() => setDirty(true)}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -733,9 +841,7 @@ function RoleEditor({ initial, onDone }: { initial: Role | undefined; onDone: ()
             body: {
               name: f.get('name'),
               permissions: grants,
-              ...(initial
-                ? { version: initial.version, active: f.get('active') === 'on' ? 1 : 0 }
-                : {}),
+              ...(initial ? { version: initial.version } : {}),
             },
           },
           { onSuccess: onDone },
@@ -759,7 +865,9 @@ function RoleEditor({ initial, onDone }: { initial: Role | undefined; onDone: ()
                       checked={grants.includes(permission)}
                       onChange={(e) => grant(permission, e.target.checked)}
                     />
-                    {t(actionName.charAt(0).toUpperCase() + actionName.slice(1))}
+                    {actionName === 'archive'
+                      ? t('Delete')
+                      : t(actionName.charAt(0).toUpperCase() + actionName.slice(1))}
                   </label>
                 ) : null;
               })}
@@ -821,32 +929,40 @@ export function Invitation({ token }: { token: string }) {
   );
 }
 function SettingsPage() {
-  const { center, admin, permissions } = useCenter();
+  const { center: incoming, admin, permissions } = useCenter();
+  const [centerDirty, setCenterDirty] = useState(false);
+  const [providerDirty, setProviderDirty] = useState(false);
+  const center = useDraftSnapshot(incoming, centerDirty);
+  const unsaved = useUnsaved(centerDirty || providerDirty);
   const { t } = useLocale();
   const provider = useData<ProviderSettings>('/provider', permissions.includes('provider.manage'));
   const action = useAction();
   const [replace, setReplace] = useState(false);
-  const locationKey = useLocation();
   return (
     <Page eyebrow="YOUR WORKSPACE, YOUR WAY" title="Settings">
+      {unsaved.prompt}
       <Alert error={action.error} />
       {admin && (
         <form
           className="panel"
-          key={`${locationKey.pathname}:${center.revision}`}
+          key={center.revision}
+          onChange={() => setCenterDirty(true)}
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
-            action.mutate({
-              path: '/settings',
-              method: 'PATCH',
-              body: {
-                name: f.get('name'),
-                timezone: f.get('timezone'),
-                locale: f.get('locale'),
-                late_minutes: Number(f.get('late')),
+            action.mutate(
+              {
+                path: '/settings',
+                method: 'PATCH',
+                body: {
+                  name: f.get('name'),
+                  timezone: f.get('timezone'),
+                  locale: f.get('locale'),
+                  late_minutes: Number(f.get('late')),
+                },
               },
-            });
+              { onSuccess: () => setCenterDirty(false) },
+            );
           }}
         >
           <h2>{t('Center name')}</h2>
@@ -893,7 +1009,7 @@ function SettingsPage() {
             <h2>{t('SMS account')}</h2>
             <span className="badge accepted">{provider.data?.mode ?? 'disabled'}</span>
           </div>
-          <State pending={provider.isPending} error={provider.error}>
+          <State query={provider}>
             <p className="muted">
               {provider.data?.configured
                 ? `API key configured · ending ${provider.data.suffix}`
@@ -912,6 +1028,7 @@ function SettingsPage() {
               </div>
             ) : (
               <form
+                onChange={() => setProviderDirty(true)}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = e.currentTarget;
@@ -934,6 +1051,7 @@ function SettingsPage() {
                       onSuccess: () => {
                         form.reset();
                         setReplace(false);
+                        setProviderDirty(false);
                       },
                     },
                   );
@@ -981,7 +1099,14 @@ function SettingsPage() {
                 </p>
                 <div className="actions">
                   {provider.data?.configured && (
-                    <Button variant="secondary" type="button" onClick={() => setReplace(false)}>
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      onClick={() => {
+                        setReplace(false);
+                        setProviderDirty(false);
+                      }}
+                    >
                       {t('Cancel')}
                     </Button>
                   )}

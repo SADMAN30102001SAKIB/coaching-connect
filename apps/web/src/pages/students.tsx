@@ -14,7 +14,9 @@ import {
   Page,
   State,
   useUnsaved,
-  MoreChoices,
+  useDraftSnapshot,
+  useListParams,
+  SearchableSelect,
 } from '../ui';
 
 export default function StudentPages() {
@@ -34,25 +36,29 @@ function Students() {
   const { permissions } = useCenter();
   const { t } = useLocale();
   const action = useAction();
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [cursor, setCursor] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState('');
+  const { params, update } = useListParams();
+  const query = params.get('q') ?? '';
+  const cursor = params.get('cursor') ?? '';
+  const selectedGroup = params.get('group') ?? '';
+  const [search, setSearch] = useState(query);
+  const [appliedSearch, setAppliedSearch] = useState(query);
+  if (appliedSearch !== query) {
+    setAppliedSearch(query);
+    setSearch(query);
+  }
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const students = useData<StudentsData>(
     `/students?q=${encodeURIComponent(query)}&group_id=${encodeURIComponent(selectedGroup)}&cursor=${encodeURIComponent(cursor)}`,
   );
 
   const handleGroupChange = (gid: string) => {
-    setSelectedGroup(gid);
-    setCursor('');
+    update({ group: gid, cursor: '' });
   };
 
   return (
     <Page
       eyebrow="YOUR COMMUNITY"
       title="Students"
-      description="One student record. Every exam. Every update."
       action={
         permissions.includes('students.create') && (
           <Link className="button primary" to="/students/new">
@@ -66,8 +72,7 @@ function Students() {
         className="searchbar"
         onSubmit={(e) => {
           e.preventDefault();
-          setQuery(search);
-          setCursor('');
+          update({ q: search, cursor: '' });
         }}
       >
         <Search size={20} />
@@ -91,11 +96,6 @@ function Students() {
             onClick={() => handleGroupChange('')}
           >
             <span>{t('All students')}</span>
-            {students.data?.groups && (
-              <span className="chip-count">
-                {students.data.groups.reduce((sum, g) => sum + g.count, 0)}
-              </span>
-            )}
           </button>
           {students.data?.groups?.map((g) => (
             <button
@@ -112,7 +112,7 @@ function Students() {
           ))}
         </div>
       )}
-      <State pending={students.isPending} error={students.error}>
+      <State query={students}>
         {students.data?.items.length ? (
           <section className="panel flush">
             <div className="record-list">
@@ -133,7 +133,10 @@ function Students() {
                       variant="ghost"
                       className="danger-icon-btn"
                       aria-label={`Delete ${student.name}`}
-                      onClick={() => setDeletingStudent(student)}
+                      onClick={() => {
+                        action.reset();
+                        setDeletingStudent(student);
+                      }}
                     >
                       <Trash2 size={17} />
                     </Button>
@@ -167,7 +170,7 @@ function Students() {
             }
           />
         )}
-        <NextPage next={students.data?.next} onNext={setCursor} />
+        <NextPage next={students.data?.next} onNext={(cursor) => update({ cursor })} />
       </State>
       <Dialog
         title="Delete student"
@@ -247,7 +250,7 @@ function StudentDetail() {
         </div>
       }
     >
-      <State pending={student.isPending} error={student.error}>
+      <State query={student}>
         {student.data && (
           <>
             <section className="panel profile-summary">
@@ -298,7 +301,10 @@ function StudentDetail() {
                       <Button
                         variant="ghost"
                         className="contact-action-btn"
-                        onClick={() => setSuppression(contact)}
+                        onClick={() => {
+                          action.reset();
+                          setSuppression(contact);
+                        }}
                       >
                         {t(contact.suppressed ? 'Unblock number' : 'Block number')}
                       </Button>
@@ -322,7 +328,13 @@ function StudentDetail() {
                       )}
                     </p>
                   </div>
-                  <Button variant="danger" onClick={() => setConfirm(true)}>
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      action.reset();
+                      setConfirm(true);
+                    }}
+                  >
                     <Trash2 size={16} />
                     {t('Delete student')}
                   </Button>
@@ -402,24 +414,37 @@ function Editor() {
   const { id } = useParams();
   const student = useData<Detail>(`/students/${id ?? ''}`, Boolean(id));
   return id ? (
-    <State pending={student.isPending} error={student.error}>
-      {student.data && <StudentForm key={student.data.version} initial={student.data} />}
+    <State query={student}>
+      {student.data && <StudentForm key={student.data.id} initial={student.data} />}
     </State>
   ) : (
     <StudentForm />
   );
 }
-function StudentForm({ initial }: { initial?: Detail }) {
+function StudentForm({ initial: incoming }: { initial?: Detail }) {
+  const [dirty, setDirty] = useState(false);
+  const initial = useDraftSnapshot(incoming, dirty);
   const [contacts, setContacts] = useState(
     () =>
       initial?.contacts.map((c) => ({
         phone: c.phone,
         audience: c.audience,
-        permitted: true,
+        permitted: Boolean(c.permitted),
       })) ?? [{ phone: '', audience: 'guardian' as const, permitted: true }],
   );
   const [groups, setGroups] = useState<string[]>(initial?.groups.map((g) => g.group_id) ?? []);
-  const [dirty, setDirty] = useState(false);
+  const [loaded, setLoaded] = useState(initial);
+  if (loaded !== initial) {
+    setLoaded(initial);
+    setContacts(
+      initial?.contacts.map((c) => ({
+        phone: c.phone,
+        audience: c.audience,
+        permitted: Boolean(c.permitted),
+      })) ?? [{ phone: '', audience: 'guardian', permitted: true }],
+    );
+    setGroups(initial?.groups.map((g) => g.group_id) ?? []);
+  }
   const unsaved = useUnsaved(dirty);
   const available = useChoices<Catalog>('/catalog?kind=group');
   const { permissions } = useCenter();
@@ -435,6 +460,7 @@ function StudentForm({ initial }: { initial?: Detail }) {
     <Page eyebrow="Students" title={initial ? 'Edit student' : 'Add student'}>
       {unsaved.prompt}
       <form
+        key={initial?.version ?? 'new'}
         className="form-stack"
         onChange={() => setDirty(true)}
         onSubmit={(e) => {
@@ -447,7 +473,7 @@ function StudentForm({ initial }: { initial?: Detail }) {
               body: {
                 name: form.get('name'),
                 identifier: form.get('identifier'),
-                contacts: contacts.map((c) => ({ ...c, permitted: true })),
+                contacts,
                 group_ids: groups,
                 ...(initial ? { version: initial.version } : {}),
               },
@@ -462,121 +488,142 @@ function StudentForm({ initial }: { initial?: Detail }) {
           );
         }}
       >
-        <section className="panel">
-          <div className="section-header">
-            <h2>{t('Profile')}</h2>
-            <Users size={21} />
-          </div>
-          <div className="form-grid">
-            <Field label="Name">
-              <input name="name" defaultValue={initial?.name} required maxLength={160} />
-            </Field>
-            <Field label="Identifier / roll (optional)">
-              <input name="identifier" defaultValue={initial?.identifier} maxLength={80} />
-            </Field>
-          </div>
-        </section>
-        <section className="panel">
-          <div className="section-header">
-            <h2>{t('Contacts')}</h2>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={contacts.length >= 10}
-              onClick={() => {
-                setContacts((all) => [
-                  ...all,
-                  { phone: '', audience: 'guardian', permitted: true },
-                ]);
-                setDirty(true);
-              }}
-            >
-              <Plus size={16} />
-              {t('Add contact')}
-            </Button>
-          </div>
-          {contacts.map((contact, i) => (
-            <div className="contact-editor" key={i}>
-              <div className="form-grid">
-                <Field label="Phone number">
-                  <input
-                    type="tel"
-                    value={contact.phone}
-                    required
-                    onChange={(e) => updateContact(i, { phone: e.target.value })}
-                  />
-                </Field>
-                <Field label="Recipients">
-                  <select
-                    value={contact.audience}
-                    onChange={(e) =>
-                      updateContact(i, {
-                        audience: e.target.value === 'student' ? 'student' : 'guardian',
-                      })
-                    }
-                  >
-                    <option value="guardian">{t('Guardian')}</option>
-                    <option value="student">{t('Student')}</option>
-                  </select>
-                </Field>
-              </div>
-              <div className="contact-bottom">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-label="Remove contact"
-                  onClick={() => {
-                    setContacts((all) => all.filter((_, index) => index !== i));
-                    setDirty(true);
-                  }}
-                >
-                  <Trash2 size={18} />
-                </Button>
-              </div>
+        <fieldset disabled={action.isPending || !writable} className="form-fields">
+          <section className="panel">
+            <div className="section-header">
+              <h2>{t('Profile')}</h2>
+              <Users size={21} />
             </div>
-          ))}
-        </section>
-        <section className="panel">
-          <div className="section-header">
-            <h2>{t('Groups')}</h2>
-          </div>
-          <State pending={available.isPending} error={available.error}>
-            <div className="choice-grid">
-              {available.data?.items.map((group) => (
-                <label className="check choice" key={group.id}>
-                  <input
-                    type="checkbox"
-                    checked={groups.includes(group.id)}
-                    onChange={(e) => {
-                      setGroups((all) =>
-                        e.target.checked ? [...all, group.id] : all.filter((id) => id !== group.id),
-                      );
+            <div className="form-grid">
+              <Field label="Name">
+                <input name="name" defaultValue={initial?.name} required maxLength={160} />
+              </Field>
+              <Field label="Identifier / roll (optional)">
+                <input name="identifier" defaultValue={initial?.identifier} maxLength={80} />
+              </Field>
+            </div>
+          </section>
+          <section className="panel">
+            <div className="section-header">
+              <h2>{t('Contacts')}</h2>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={contacts.length >= 10}
+                onClick={() => {
+                  setContacts((all) => [
+                    ...all,
+                    { phone: '', audience: 'guardian', permitted: true },
+                  ]);
+                  setDirty(true);
+                }}
+              >
+                <Plus size={16} />
+                {t('Add contact')}
+              </Button>
+            </div>
+            {contacts.map((contact, i) => (
+              <div className="contact-editor" key={i}>
+                <div className="form-grid">
+                  <Field label="Phone number">
+                    <input
+                      type="tel"
+                      value={contact.phone}
+                      required
+                      onChange={(e) => updateContact(i, { phone: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Recipients">
+                    <select
+                      value={contact.audience}
+                      onChange={(e) =>
+                        updateContact(i, {
+                          audience: e.target.value === 'student' ? 'student' : 'guardian',
+                        })
+                      }
+                    >
+                      <option value="guardian">{t('Guardian')}</option>
+                      <option value="student">{t('Student')}</option>
+                    </select>
+                  </Field>
+                </div>
+                <div className="contact-bottom">
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={contact.permitted}
+                      onChange={(event) => updateContact(i, { permitted: event.target.checked })}
+                    />
+                    {t('SMS permitted')}
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-label="Remove contact"
+                    onClick={() => {
+                      setContacts((all) => all.filter((_, index) => index !== i));
                       setDirty(true);
                     }}
-                  />
-                  {group.name}
-                </label>
-              ))}
+                  >
+                    <Trash2 size={18} />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </section>
+          <section className="panel">
+            <div className="section-header">
+              <div>
+                <h2>{t('Groups')}</h2>
+                <p className="muted">
+                  {t('Select the groups or batches this student belongs to.')}
+                </p>
+              </div>
             </div>
-            {!available.data?.items.length && <Link to="/groups">{t('Create a group first')}</Link>}
-            <MoreChoices query={available} />
-          </State>
-        </section>
-        <Alert error={action.error} />
-        <div className="sticky-actions">
-          <span>{t(dirty ? 'Unsaved changes' : 'Saved')}</span>
-          <div className="actions">
-            <Link
-              className="button secondary"
-              to={initial ? `/students/${initial.id}` : '/students'}
-            >
-              {t('Cancel')}
-            </Link>
-            <Button type="submit" busy={action.isPending} disabled={!writable}>
-              {t('Save')}
-            </Button>
+            <State query={available} compact>
+              {available.data?.items.length ? (
+                <SearchableSelect
+                  items={available.data.items}
+                  selected={groups}
+                  onChange={(next) => {
+                    setGroups(next);
+                    setDirty(true);
+                  }}
+                  single={false}
+                  placeholder={t('Search groups…')}
+                  query={available}
+                  emptyLabel={t('No groups selected')}
+                  summaryFormatter={(chosen) => {
+                    if (chosen.length === 0) return t('No groups selected');
+                    if (chosen.length === 1) return chosen[0]?.name ?? '';
+                    const names = chosen
+                      .map((c) => c.name)
+                      .slice(0, 2)
+                      .join(', ');
+                    return `${chosen.length} ${t('groups selected')} (${names}${chosen.length > 2 ? ', …' : ''})`;
+                  }}
+                />
+              ) : (
+                <Link to="/groups">{t('Create a group first')}</Link>
+              )}
+            </State>
+          </section>
+          <Alert error={action.error} />
+          <div className="sticky-actions">
+            <span>{t(dirty ? 'Unsaved changes' : 'Saved')}</span>
+            <div className="actions">
+              <Link
+                className="button secondary"
+                to={initial ? `/students/${initial.id}` : '/students'}
+              >
+                {t('Cancel')}
+              </Link>
+              <Button type="submit" busy={action.isPending} disabled={!writable}>
+                {t('Save')}
+              </Button>
+            </div>
           </div>
-        </div>
+        </fieldset>
       </form>
     </Page>
   );

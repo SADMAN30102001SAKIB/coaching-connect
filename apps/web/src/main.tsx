@@ -6,10 +6,20 @@ import App from './App';
 import { LocaleProvider } from './i18n';
 import { ThemeProvider } from './theme';
 import { AppFailure } from './components/AppFailure';
+import { retryRead } from './api';
 import './styles.css';
 
 const client = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30000, retry: false, refetchOnWindowFocus: false } },
+  defaultOptions: {
+    queries: {
+      staleTime: 15000,
+      retry: retryRead,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: 'always',
+      refetchOnReconnect: 'always',
+    },
+    mutations: { retry: false, networkMode: 'always' },
+  },
 });
 const root = document.getElementById('root');
 const router = createBrowserRouter([{ path: '*', element: <App /> }]);

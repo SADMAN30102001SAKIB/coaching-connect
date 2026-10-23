@@ -4,18 +4,22 @@ import { Plus } from 'lucide-react';
 import type { Center, Page as Paged } from '@coaching/domain';
 import { request } from '../api';
 import { useLocale } from '../i18n';
-import { Alert, Button, Dialog, Empty, Field, NextPage, Page, State } from '../ui';
+import { Alert, Button, Dialog, Empty, Field, NextPage, Page, State, useListParams } from '../ui';
 import { Invitation } from './manage';
 
 export default function Platform() {
   const { t } = useLocale();
   const client = useQueryClient();
-  const [cursor, setCursor] = useState('');
+  const { params, update } = useListParams();
+  const cursor = params.get('cursor') ?? '';
   const centers = useQuery({
     queryKey: ['platform', cursor],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<Paged<Center & { owner_phone: string; owner_name: string }>>(
         `/platform/centers?cursor=${encodeURIComponent(cursor)}`,
+        'GET',
+        undefined,
+        signal,
       ),
   });
   const [creating, setCreating] = useState(false);
@@ -48,14 +52,19 @@ export default function Platform() {
       title="Coaching centers"
       description="Provision independent workspaces. Center data stays inside each center."
       action={
-        <Button onClick={() => setCreating(true)}>
+        <Button
+          onClick={() => {
+            action.reset();
+            setCreating(true);
+          }}
+        >
           <Plus size={18} />
           {t('Create center')}
         </Button>
       }
     >
       <Alert error={action.error} />
-      <State pending={centers.isPending} error={centers.error}>
+      <State query={centers}>
         {centers.data?.items.length ? (
           <section className="panel">
             {centers.data.items.map((center) => (
@@ -69,7 +78,13 @@ export default function Platform() {
                 <span className={`badge ${center.active ? 'accepted' : 'paused'}`}>
                   {t(center.active ? 'Active' : 'Suspended')}
                 </span>
-                <Button variant="secondary" onClick={() => setConfirm(center)}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    action.reset();
+                    setConfirm(center);
+                  }}
+                >
                   {center.active ? 'Suspend' : 'Restore'}
                 </Button>
               </div>
@@ -81,7 +96,7 @@ export default function Platform() {
             description="Its admin receives a one-use account setup link."
           />
         )}
-        <NextPage next={centers.data?.next} onNext={setCursor} />
+        <NextPage next={centers.data?.next} onNext={(cursor) => update({ cursor })} />
       </State>
       <section className="panel">
         <h2>{t('Platform-assisted recovery')}</h2>

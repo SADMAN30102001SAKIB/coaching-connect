@@ -1,6 +1,15 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react';
-import { Link, NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Link,
+  NavLink,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useNavigate,
+  useLocation,
+} from 'react-router';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   BookOpen,
   ChevronDown,
@@ -10,7 +19,6 @@ import {
   LogOut,
   MessageSquareText,
   MoreHorizontal,
-  Plus,
   Settings,
   ShieldCheck,
   Users,
@@ -29,7 +37,19 @@ import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
 import { ThemePicker } from './components/ThemePicker';
 import { useLocale } from './i18n';
-import { Alert, Badge, Button, ConfirmDialog, Empty, Loading, Page, State, dateTime } from './ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  ConfirmDialog,
+  Empty,
+  Loading,
+  Page,
+  State,
+  dateTime,
+  hasUnsavedChanges,
+  allowWorkspaceChange,
+} from './ui';
 
 const StudentPages = lazy(() => import('./pages/students'));
 const ExamPages = lazy(() => import('./pages/exams'));
@@ -52,10 +72,16 @@ const navigation = [
   { path: '/messages', label: 'Messages', icon: MessageSquareText, permission: 'messages.read' },
   { path: '/more', label: 'More', icon: MoreHorizontal },
 ];
+function clearSession(client: QueryClient) {
+  client.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' });
+  client.getMutationCache().clear();
+  client.setQueryData(['session'], null);
+}
 
 export default function App() {
   const client = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, toggle, locale } = useLocale();
   const [accountError, setAccountError] = useState<unknown>();
   const [selected, setSelected] = useState(() => localStorage.getItem('center') ?? '');
@@ -64,31 +90,41 @@ export default function App() {
   const online = useSyncExternalStore(onlineSubscribe, () => navigator.onLine);
   const session = useQuery({
     queryKey: ['session'],
-    queryFn: () => request<Session>('/auth/session'),
-    retry: false,
+    queryFn: ({ signal }) => request<Session | null>('/auth/session', 'GET', undefined, signal),
+    refetchOnWindowFocus: (query) => (query.state.data === null ? false : 'always'),
+    refetchOnReconnect: (query) => (query.state.data === null ? false : 'always'),
   });
   const centerId =
     session.data?.centers.find((c) => c.id === selected)?.id ?? session.data?.centers[0]?.id;
   const context = useQuery({
     queryKey: ['data', centerId, 'context'],
-    queryFn: () => request<Context>(`/c/${centerId ?? ''}/context`),
+    queryFn: ({ signal }) =>
+      request<Context>(`/c/${centerId ?? ''}/context`, 'GET', undefined, signal),
     enabled: Boolean(centerId),
   });
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      client.setQueryData(['session'], null);
-      client.clear();
+      clearSession(client);
       void navigate('/');
     });
     return () => setUnauthorizedHandler(null);
   }, [client, navigate]);
+  useEffect(() => {
+    if (session.error instanceof ApiError && session.error.status === 401) {
+      clearSession(client);
+    }
+  }, [client, session.error]);
   const complete = () => {
-    history.replaceState(null, '', '/');
     void client.invalidateQueries({ queryKey: ['session'] });
-    void navigate('/');
+    void navigate('/', { replace: true });
   };
   if (new URLSearchParams(location.search).has('invite')) return <AuthScreen onDone={complete} />;
-  if (session.isPending) return <Loading />;
+  if (session.isPending)
+    return (
+      <main className="standalone">
+        <State query={session}>{null}</State>
+      </main>
+    );
   if (!session.data)
     return session.error instanceof ApiError && session.error.status !== 401 ? (
       <main className="standalone">
@@ -113,13 +149,17 @@ export default function App() {
       await request('/auth/logout', 'POST', {});
     } catch (error) {
       setAccountError(error);
-    } finally {
-      client.setQueryData(['session'], null);
-      client.clear();
-      void navigate('/');
+      return;
     }
+    allowWorkspaceChange();
+    clearSession(client);
+    void navigate('/');
   };
-  if (!centerId || !context.data)
+  if (
+    !centerId ||
+    !context.data ||
+    (context.error instanceof ApiError && [401, 403, 404].includes(context.error.status))
+  )
     return (
       <main className="standalone">
         <header className="page-header">
@@ -142,22 +182,26 @@ export default function App() {
           </div>
         </header>
         <Alert error={accountError} />
-        {user.platform ? (
+        {user.platform && !centerId ? (
           <Suspense fallback={<Loading />}>
             <Platform />
           </Suspense>
+        ) : centerId ? (
+          <State query={context}>{null}</State>
         ) : (
-          <State pending={context.isPending && Boolean(centerId)} error={context.error}>
-            <Empty
-              title="No coaching center available"
-              description="Ask your center admin for an invitation or contact the platform owner."
-            />
-          </State>
+          <Empty
+            title="No coaching center available"
+            description="Ask your center admin for an invitation or contact the platform owner."
+          />
         )}
         <ConfirmDialog
           open={confirmSignOut}
           title="Sign out"
-          message="Are you sure you want to sign out?"
+          message={
+            hasUnsavedChanges()
+              ? 'Sign out and discard unsaved changes?'
+              : 'Are you sure you want to sign out?'
+          }
           confirmLabel="Sign out"
           danger
           onConfirm={() => {
@@ -277,7 +321,9 @@ export default function App() {
           <main className="main-content">
             <Alert error={accountError} />
             <Suspense fallback={<Loading />}>
-              <Routes>
+              <Routes
+                key={`${location.pathname}${location.pathname === '/messages/new' ? location.search : ''}`}
+              >
                 <Route element={<Outlet />}>
                   <Route index element={<HomePage name={user.name} />} />
                   <Route path="students/*" element={<StudentPages />} />
@@ -369,7 +415,11 @@ export default function App() {
         <ConfirmDialog
           open={confirmSignOut}
           title="Sign out"
-          message="Are you sure you want to sign out?"
+          message={
+            hasUnsavedChanges()
+              ? 'Sign out and discard unsaved changes?'
+              : 'Are you sure you want to sign out?'
+          }
           confirmLabel="Sign out"
           danger
           onConfirm={() => {
@@ -383,14 +433,16 @@ export default function App() {
           title="Switch coaching center"
           message={
             pendingCenter
-              ? `${t('Switch coaching center to')} "${session.data.centers.find((c) => c.id === pendingCenter)?.name ?? pendingCenter}"?`
+              ? `${t('Switch coaching center to')} "${session.data.centers.find((c) => c.id === pendingCenter)?.name ?? pendingCenter}"?${hasUnsavedChanges() ? ` ${t('Unsaved changes will be discarded.')}` : ''}`
               : 'Switch coaching center?'
           }
           confirmLabel="Switch"
           onConfirm={() => {
             if (pendingCenter) {
               localStorage.setItem('center', pendingCenter);
+              allowWorkspaceChange();
               setSelected(pendingCenter);
+              void navigate('/');
             }
             setPendingCenter(null);
           }}
@@ -411,20 +463,8 @@ function HomePage({ name }: { name: string }) {
     campaigns: Campaign[];
   }>('/home');
   return (
-    <Page
-      eyebrow="Overview"
-      title={`${t('Welcome back')}, ${name.split(' ')[0] ?? name}`}
-      description="A little clarity. A lot less busywork."
-      action={
-        permissions.includes('messages.create') ? (
-          <Link className="button primary" to="/messages/new">
-            <Plus size={18} />
-            {t('New message')}
-          </Link>
-        ) : null
-      }
-    >
-      <State pending={home.isPending} error={home.error}>
+    <Page eyebrow="Overview" title={`${t('Welcome back')}, ${name.split(' ')[0] ?? name}`}>
+      <State query={home}>
         <BalanceCard />
         <div className="stats-grid">
           {[

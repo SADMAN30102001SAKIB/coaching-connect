@@ -13,7 +13,7 @@ export default defineConfig({
   webServer: {
     command:
       'pnpm db:test && pnpm exec wrangler dev --config dist/coaching_connect/wrangler.json --port 4173 --persist-to .wrangler/browser-state --var SMS_MODE:mock --var DISPATCH_ENABLED:true --var BOOTSTRAP_TOKEN:local-browser-test-setup-key-not-for-production-2026',
-    url: 'http://127.0.0.1:4173',
+    url: 'http://127.0.0.1:4173/api/auth/session',
     reuseExistingServer: !process.env['CI'],
     timeout: 30000,
   },
