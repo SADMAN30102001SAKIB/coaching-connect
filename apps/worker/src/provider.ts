@@ -204,7 +204,12 @@ export async function submit(
     }));
   }
 }
-export async function balance(env: Bindings, config: ProviderConfig, force = false) {
+export async function balance(
+  env: Bindings,
+  config: ProviderConfig,
+  force = false,
+  beforeRefresh?: () => Promise<void>,
+) {
   const cached = await one<{
     balance: string | null;
     estimate_sms: number | null;
@@ -232,6 +237,7 @@ export async function balance(env: Bindings, config: ProviderConfig, force = fal
     now(),
   ).run();
   if (!claim.meta.changes) return cached ?? { balance: null, estimate_sms: null, checked_at: null };
+  await beforeRefresh?.();
   const raw =
     env.SMS_MODE === 'mock'
       ? { balance: '1000.00', estimate_sms: 1500 }

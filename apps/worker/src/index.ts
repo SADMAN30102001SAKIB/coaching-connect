@@ -362,10 +362,11 @@ centerApi.get('/balance', async (c) => {
 });
 centerApi.post('/balance/refresh', async (c) => {
   const a = requirePermission(c, 'balance.refresh');
-  await throttle(c.env.DB, `balance:${a.center.id}`, 5, 300);
   const config = await configFor(c.env.DB, a.center.id);
   assert(config, 'PROVIDER_REQUIRED', 'Add your SMS API account in Settings first.', 422);
-  return c.json(await balance(c.env, config, true));
+  return c.json(
+    await balance(c.env, config, true, () => throttle(c.env.DB, `balance:${a.center.id}`, 5, 300)),
+  );
 });
 centerApi.route('/', records);
 centerApi.route('/exams', exams);

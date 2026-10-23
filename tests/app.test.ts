@@ -506,6 +506,66 @@ describe('domain rules', () => {
   });
 });
 describe('provider contracts', () => {
+  it('counts provider checks rather than dashboard visits against the balance refresh limit', async () => {
+    const center = uid();
+    const config = uid();
+    const key = `balance:${center}`;
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+        center,
+        'Balance fixture',
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+    ]);
+    const path = `/c/${center}/balance/refresh`;
+    for (let visit = 0; visit < 6; visit++) expect((await call(path, 'POST', {})).status).toBe(422);
+    expect(await one(env.DB, 'SELECT count FROM throttle WHERE key=?', key)).toBeNull();
+    await statement(
+      env.DB,
+      "INSERT INTO provider_configs(id,center_id,api_key,sender_ids,created_at) VALUES(?,?,'fixture-not-a-real-key','[\"TEST\"]',?)",
+      config,
+      center,
+      now(),
+    ).run();
+    const visits = await Promise.all(Array.from({ length: 12 }, () => call(path, 'POST', {})));
+    expect(visits.every((response) => response.status === 200)).toBe(true);
+    expect(await one(env.DB, 'SELECT count FROM throttle WHERE key=?', key)).toEqual({ count: 1 });
+    const checkedAt = now();
+    await env.DB.batch([
+      statement(env.DB, 'UPDATE throttle SET count=5 WHERE key=?', key),
+      statement(
+        env.DB,
+        "UPDATE balances SET balance='42.00',checked_at=? WHERE center_id=?",
+        checkedAt,
+        center,
+      ),
+    ]);
+    for (let visit = 0; visit < 8; visit++) {
+      const response = await call(path, 'POST', {});
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ balance: '42.00', checked_at: checkedAt });
+    }
+    expect(await one(env.DB, 'SELECT count FROM throttle WHERE key=?', key)).toEqual({ count: 5 });
+    await statement(
+      env.DB,
+      'UPDATE balances SET checked_at=? WHERE center_id=?',
+      now() - 61000,
+      center,
+    ).run();
+    const limited = await call(path, 'POST', {});
+    expect(limited.status).toBe(429);
+    expect(limited.body['error']).toMatchObject({ code: 'RATE_LIMITED' });
+    expect((await call(`/c/${center}/balance`)).body['balance']).toBe('42.00');
+    await env.DB.batch([
+      statement(env.DB, 'UPDATE throttle SET expires_at=? WHERE key=?', now() - 1, key),
+      statement(env.DB, 'UPDATE balances SET refreshing_until=0 WHERE center_id=?', center),
+    ]);
+    expect((await call(path, 'POST', {})).body['balance']).toBe('1000.00');
+    expect(await one(env.DB, 'SELECT count FROM throttle WHERE key=?', key)).toEqual({ count: 1 });
+  });
   it.each([
     [401, 'PROVIDER_REJECTED'],
     [403, 'PROVIDER_REJECTED'],
