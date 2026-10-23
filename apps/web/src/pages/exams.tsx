@@ -43,7 +43,9 @@ interface ExamDetailData extends Exam {
 }
 function ExamList() {
   const [cursor, setCursor] = useState('');
+  const [deletingExam, setDeletingExam] = useState<Exam | null>(null);
   const list = useData<Paged<Exam>>(`/exams?cursor=${encodeURIComponent(cursor)}`);
+  const action = useAction();
   const { permissions } = useCenter();
   const { t } = useLocale();
   return (
@@ -69,7 +71,23 @@ function ExamList() {
                   <span className="record-icon">
                     <GraduationCap size={24} />
                   </span>
-                  <span className="mini-label">{exam.exam_date}</span>
+                  <div className="exam-card-actions">
+                    <span className="mini-label">{exam.exam_date}</span>
+                    {permissions.includes('exams.archive') && (
+                      <Button
+                        variant="ghost"
+                        className="danger-icon-btn"
+                        aria-label={`Delete ${exam.name}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDeletingExam(exam);
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <h2>{exam.name}</h2>
                 <span className="text-link">
@@ -83,6 +101,49 @@ function ExamList() {
         )}
         <NextPage next={list.data?.next} onNext={setCursor} />
       </State>
+      <Dialog
+        title="Delete exam"
+        open={deletingExam !== null}
+        onClose={() => setDeletingExam(null)}
+      >
+        {deletingExam && (
+          <div>
+            <p>
+              {t('Are you sure you want to delete')} <strong>{deletingExam.name}</strong>?
+            </p>
+            <p className="muted">
+              {t(
+                'This will permanently delete this exam, all associated subject papers, and all student results. This cannot be undone.',
+              )}
+            </p>
+            <Alert error={action.error} />
+            <div className="actions">
+              <Button type="button" variant="secondary" onClick={() => setDeletingExam(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                busy={action.isPending}
+                onClick={() => {
+                  action.mutate(
+                    { path: `/exams/${deletingExam.id}`, method: 'DELETE' },
+                    {
+                      onSuccess: () => {
+                        setDeletingExam(null);
+                        void list.refetch();
+                      },
+                    },
+                  );
+                }}
+              >
+                <Trash2 size={16} />
+                {t('Delete exam')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </Page>
   );
 }
@@ -512,33 +573,6 @@ function ExamDetail() {
                   <Button type="button" variant="secondary" onClick={() => setEditing(false)}>
                     {t('Cancel')}
                   </Button>
-                  {permissions.includes('exams.archive') && (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      busy={action.isPending}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            t(
-                              'Are you sure you want to permanently delete this exam? All papers, subjects, and recorded student marks for this exam will be removed. This cannot be undone.',
-                            ),
-                          )
-                        ) {
-                          action.mutate(
-                            { path: `/exams/${id}`, method: 'DELETE' },
-                            {
-                              onSuccess: () => {
-                                void navigate('/exams');
-                              },
-                            },
-                          );
-                        }
-                      }}
-                    >
-                      {t('Delete exam')}
-                    </Button>
-                  )}
                   <Button type="submit" busy={action.isPending}>
                     {t('Save')}
                   </Button>

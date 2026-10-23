@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { Copy, Pencil, Plus, Settings2 } from 'lucide-react';
+import { Copy, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 import {
   actions,
   features,
@@ -43,6 +43,7 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
   const kind: Catalog['kind'] = groups ? 'group' : 'subject';
   const [cursor, setCursor] = useState('');
   const [edit, setEdit] = useState<Catalog | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<Catalog | null>(null);
   const [selected, setSelected] = useState<Catalog | null>(null);
   const list = useData<Paged<Catalog>>(
     `/catalog?kind=${kind}&cursor=${encodeURIComponent(cursor)}`,
@@ -89,6 +90,16 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
                     onClick={() => setEdit(item)}
                   >
                     <Pencil size={17} />
+                  </Button>
+                )}
+                {permissions.includes(`${prefix}.archive`) && (
+                  <Button
+                    variant="ghost"
+                    className="danger-icon-btn"
+                    aria-label={`Delete ${item.name}`}
+                    onClick={() => setDeleting(item)}
+                  >
+                    <Trash2 size={17} />
                   </Button>
                 )}
               </div>
@@ -153,38 +164,45 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
             <Button type="button" variant="secondary" onClick={() => setEdit(null)}>
               {t('Cancel')}
             </Button>
-            {edit && edit !== 'new' && permissions.includes(`${prefix}.archive`) && (
-              <Button
-                type="button"
-                variant="danger"
-                busy={action.isPending}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      groups
-                        ? t(
-                            'Are you sure you want to delete this group? Students will remain in the center but will no longer be assigned to this group.',
-                          )
-                        : t(
-                            'Are you sure you want to delete this subject? It cannot be deleted if used in any exam.',
-                          ),
-                    )
-                  ) {
-                    action.mutate(
-                      { path: `/catalog/${edit.id}`, method: 'DELETE' },
-                      { onSuccess: () => setEdit(null) },
-                    );
-                  }
-                }}
-              >
-                {t(groups ? 'Delete group' : 'Delete subject')}
-              </Button>
-            )}
             <Button type="submit" busy={action.isPending}>
               {t('Save')}
             </Button>
           </div>
         </form>
+      </Dialog>
+      <Dialog
+        title={groups ? 'Delete group' : 'Delete subject'}
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+      >
+        <p>
+          {groups
+            ? t(
+                'Are you sure you want to delete this group? Students will remain in the center but will no longer be assigned to this group.',
+              )
+            : t(
+                'Are you sure you want to delete this subject? It cannot be deleted if used in any exam.',
+              )}
+        </p>
+        <Alert error={action.error} />
+        <div className="actions">
+          <Button variant="secondary" onClick={() => setDeleting(null)}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            variant="danger"
+            busy={action.isPending}
+            onClick={() => {
+              if (!deleting) return;
+              action.mutate(
+                { path: `/catalog/${deleting.id}`, method: 'DELETE' },
+                { onSuccess: () => setDeleting(null) },
+              );
+            }}
+          >
+            {t(groups ? 'Delete group' : 'Delete subject')}
+          </Button>
+        </div>
       </Dialog>
       <Dialog
         title={selected?.name ?? 'Groups'}
@@ -217,6 +235,8 @@ function Templates() {
   const { permissions } = useCenter();
   const { t } = useLocale();
   const [edit, setEdit] = useState<Template | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<Template | null>(null);
+  const action = useAction();
   return (
     <Page
       eyebrow="WRITE ONCE. MAKE IT PERSONAL."
@@ -247,6 +267,16 @@ function Templates() {
                       <Pencil size={17} />
                     </Button>
                   )}
+                  {permissions.includes('templates.archive') && (
+                    <Button
+                      variant="ghost"
+                      className="danger-icon-btn"
+                      onClick={() => setDeleting(template)}
+                      aria-label={`Delete ${template.name}`}
+                    >
+                      <Trash2 size={17} />
+                    </Button>
+                  )}
                 </div>
                 <h2>{template.name}</h2>
                 <p className="message-text">{template.body}</p>
@@ -270,6 +300,28 @@ function Templates() {
             onDone={() => setEdit(null)}
           />
         )}
+      </Dialog>
+      <Dialog title="Delete template" open={deleting !== null} onClose={() => setDeleting(null)}>
+        <p>{t('Are you sure you want to delete this template?')}</p>
+        <Alert error={action.error} />
+        <div className="actions">
+          <Button variant="secondary" onClick={() => setDeleting(null)}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            variant="danger"
+            busy={action.isPending}
+            onClick={() => {
+              if (!deleting) return;
+              action.mutate(
+                { path: `/templates/${deleting.id}`, method: 'DELETE' },
+                { onSuccess: () => setDeleting(null) },
+              );
+            }}
+          >
+            {t('Delete template')}
+          </Button>
+        </div>
       </Dialog>
     </Page>
   );
@@ -369,23 +421,9 @@ function TemplateForm({ initial, onDone }: { initial: Template | undefined; onDo
       <VariableEditor body={body} setBody={setBody} scope={scope} />
       <Alert error={action.error} />
       <div className="actions">
-        {initial && (
-          <Button
-            type="button"
-            variant="danger"
-            busy={action.isPending}
-            onClick={() => {
-              if (window.confirm(t('Are you sure you want to delete this template?'))) {
-                action.mutate(
-                  { path: `/templates/${initial.id}`, method: 'DELETE' },
-                  { onSuccess: onDone },
-                );
-              }
-            }}
-          >
-            {t('Delete template')}
-          </Button>
-        )}
+        <Button type="button" variant="secondary" onClick={onDone}>
+          {t('Cancel')}
+        </Button>
         <Button type="submit" busy={action.isPending}>
           {t('Save')}
         </Button>
@@ -408,6 +446,7 @@ function Staff() {
   const action = useAction<{ token: string }>();
   const update = useAction();
   const [role, setRole] = useState<Role | 'new' | null>(null);
+  const [deletingRole, setDeletingRole] = useState<Role | null>(null);
   const [member, setMember] = useState<StaffMember | 'new' | null>(null);
   const [token, setToken] = useState('');
   const [transfer, setTransfer] = useState(false);
@@ -473,6 +512,14 @@ function Staff() {
                   onClick={() => setRole(item)}
                 >
                   <Pencil size={17} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="danger-icon-btn"
+                  aria-label={`Delete ${item.name}`}
+                  onClick={() => setDeletingRole(item)}
+                >
+                  <Trash2 size={17} />
                 </Button>
               </div>
             ))
@@ -582,6 +629,40 @@ function Staff() {
             initial={role === 'new' ? undefined : role}
             onDone={() => setRole(null)}
           />
+        )}
+      </Dialog>
+      <Dialog
+        title="Delete role"
+        open={deletingRole !== null}
+        onClose={() => setDeletingRole(null)}
+      >
+        {deletingRole && (
+          <div>
+            <p>
+              {t(
+                'Are you sure you want to delete this role? It cannot be deleted if staff members are currently assigned to it.',
+              )}
+            </p>
+            <Alert error={update.error} />
+            <div className="actions">
+              <Button type="button" variant="secondary" onClick={() => setDeletingRole(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                busy={update.isPending}
+                onClick={() => {
+                  update.mutate(
+                    { path: `/roles/${deletingRole.id}`, method: 'DELETE' },
+                    { onSuccess: () => setDeletingRole(null) },
+                  );
+                }}
+              >
+                {t('Delete role')}
+              </Button>
+            </div>
+          </div>
         )}
       </Dialog>
       <Dialog title="Invitation link" open={Boolean(token)} onClose={() => setToken('')}>
@@ -706,29 +787,6 @@ function RoleEditor({ initial, onDone }: { initial: Role | undefined; onDone: ()
         <Button type="button" variant="secondary" onClick={onDone}>
           {t('Cancel')}
         </Button>
-        {initial && (
-          <Button
-            type="button"
-            variant="danger"
-            busy={action.isPending}
-            onClick={() => {
-              if (
-                window.confirm(
-                  t(
-                    'Are you sure you want to delete this role? It cannot be deleted if staff members are currently assigned to it.',
-                  ),
-                )
-              ) {
-                action.mutate(
-                  { path: `/roles/${initial.id}`, method: 'DELETE' },
-                  { onSuccess: onDone },
-                );
-              }
-            }}
-          >
-            {t('Delete role')}
-          </Button>
-        )}
         <Button type="submit" busy={action.isPending}>
           {t('Save role')}
         </Button>

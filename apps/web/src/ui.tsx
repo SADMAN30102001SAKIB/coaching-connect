@@ -2,12 +2,23 @@ import {
   cloneElement,
   useEffect,
   useId,
+  useMemo,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { AlertCircle, ArrowRight, CheckCircle2, Inbox, LoaderCircle, X } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  Inbox,
+  LoaderCircle,
+  Search,
+  X,
+} from 'lucide-react';
 import { useLocale } from './i18n';
 import { useBlocker } from 'react-router';
 
@@ -323,4 +334,176 @@ export function dateTime(timestamp: number | null, timezone: string, locale: str
         timeZone: timezone,
       }).format(timestamp)
     : '—';
+}
+
+export function SearchableSelect<T extends { id: string; name: string }>({
+  id,
+  items,
+  selected,
+  onChange,
+  single = false,
+  placeholder,
+  query,
+  emptyLabel,
+  summaryFormatter,
+  'aria-describedby': ariaDescribedBy,
+}: {
+  id?: string;
+  items: T[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  single?: boolean;
+  placeholder?: string;
+  query?: {
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => Promise<unknown>;
+  };
+  emptyLabel?: string;
+  summaryFormatter?: (selectedItems: T[]) => string;
+  'aria-describedby'?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const { t } = useLocale();
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const selectedItems = useMemo(
+    () => items.filter((item) => selected.includes(item.id)),
+    [items, selected],
+  );
+
+  const filteredItems = useMemo(() => {
+    if (!search.trim()) return items;
+    const queryStr = search.toLowerCase();
+    return items.filter((item) => item.name.toLowerCase().includes(queryStr));
+  }, [items, search]);
+
+  const label = useMemo(() => {
+    if (summaryFormatter) return summaryFormatter(selectedItems);
+    if (selectedItems.length === 0) return emptyLabel ? t(emptyLabel) : t('Choose…');
+    if (selectedItems.length === 1) return selectedItems[0]?.name ?? '';
+    return `${selectedItems.length} ${t('selected')}`;
+  }, [summaryFormatter, selectedItems, emptyLabel, t]);
+
+  return (
+    <div className="picker-container" ref={containerRef}>
+      <button
+        type="button"
+        id={id}
+        className="picker-trigger"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-describedby={ariaDescribedBy}
+      >
+        <span className={`picker-trigger-label ${selected.length === 0 ? 'placeholder' : ''}`}>
+          {label}
+        </span>
+        <ChevronDown size={16} className={`picker-chevron ${open ? 'open' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="picker-dropdown" role="listbox">
+          <div className="picker-search-bar">
+            <Search size={14} className="picker-search-icon" />
+            <input
+              type="text"
+              className="picker-search-input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={placeholder ?? t('Search…')}
+            />
+            {search && (
+              <button
+                type="button"
+                className="picker-search-clear"
+                onClick={() => setSearch('')}
+                aria-label={t('Clear search')}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="picker-list">
+            {filteredItems.length > 0 ? (
+              filteredItems.map((item) => {
+                const isChecked = selected.includes(item.id);
+                return (
+                  <label className="picker-item" key={item.id}>
+                    <input
+                      type={single ? 'radio' : 'checkbox'}
+                      name={single ? `picker-${id ?? 'single'}` : undefined}
+                      checked={isChecked}
+                      onChange={(e) => {
+                        if (single) {
+                          onChange([item.id]);
+                          setOpen(false);
+                        } else {
+                          onChange(
+                            e.target.checked
+                              ? [...selected, item.id]
+                              : selected.filter((id) => id !== item.id),
+                          );
+                        }
+                      }}
+                    />
+                    <span className="picker-item-name">{item.name}</span>
+                  </label>
+                );
+              })
+            ) : (
+              <div className="picker-empty-state">{t('No matches found')}</div>
+            )}
+            {query && <MoreChoices query={query} />}
+          </div>
+
+          {!single && (
+            <div className="picker-footer">
+              <span className="picker-count">
+                {selected.length === 0 ? t('None selected') : `${selected.length} ${t('selected')}`}
+              </span>
+              <div className="picker-footer-actions">
+                {selected.length > 0 && (
+                  <button
+                    type="button"
+                    className="picker-action-button"
+                    onClick={() => onChange([])}
+                  >
+                    {t('Clear')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="picker-action-button primary"
+                  onClick={() => setOpen(false)}
+                >
+                  {t('Done')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

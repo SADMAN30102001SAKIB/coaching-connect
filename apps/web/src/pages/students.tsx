@@ -33,10 +33,12 @@ interface StudentsData extends Paged<Student> {
 function Students() {
   const { permissions } = useCenter();
   const { t } = useLocale();
+  const action = useAction();
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
+  const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const students = useData<StudentsData>(
     `/students?q=${encodeURIComponent(query)}&group_id=${encodeURIComponent(selectedGroup)}&cursor=${encodeURIComponent(cursor)}`,
   );
@@ -109,17 +111,35 @@ function Students() {
           <section className="panel flush">
             <div className="record-list">
               {students.data.items.map((student) => (
-                <Link className="record-row" key={student.id} to={`/students/${student.id}`}>
-                  <span className="initial-avatar">{student.name.slice(0, 1)}</span>
-                  <div className="grow">
-                    <strong>{student.name}</strong>
-                    <small>
-                      {student.identifier || t('No identifier')}
-                      {student.group_name ? ` · ${student.group_name}` : ''}
-                    </small>
-                  </div>
-                  <span className="row-arrow">→</span>
-                </Link>
+                <div className="record-row" key={student.id}>
+                  <Link className="record-row-content grow" to={`/students/${student.id}`}>
+                    <span className="initial-avatar">{student.name.slice(0, 1)}</span>
+                    <div className="grow">
+                      <strong>{student.name}</strong>
+                      <small>
+                        {student.identifier || t('No identifier')}
+                        {student.group_name ? ` · ${student.group_name}` : ''}
+                      </small>
+                    </div>
+                  </Link>
+                  {permissions.includes('students.archive') && (
+                    <Button
+                      variant="ghost"
+                      className="danger-icon-btn"
+                      aria-label={`Delete ${student.name}`}
+                      onClick={() => setDeletingStudent(student)}
+                    >
+                      <Trash2 size={17} />
+                    </Button>
+                  )}
+                  <Link
+                    to={`/students/${student.id}`}
+                    className="row-arrow"
+                    aria-label={`View ${student.name}`}
+                  >
+                    →
+                  </Link>
+                </div>
               ))}
             </div>
           </section>
@@ -143,6 +163,48 @@ function Students() {
         )}
         <NextPage next={students.data?.next} onNext={setCursor} />
       </State>
+      <Dialog
+        title="Delete student"
+        open={deletingStudent !== null}
+        onClose={() => setDeletingStudent(null)}
+      >
+        {deletingStudent && (
+          <div>
+            <p>
+              {t('Are you sure you want to permanently delete')}{' '}
+              <strong>{deletingStudent.name}</strong>?{' '}
+              {t(
+                'All their contacts, group memberships, and recorded exam marks will be permanently removed. This action cannot be undone.',
+              )}
+            </p>
+            <Alert error={action.error} />
+            <div className="actions">
+              <Button type="button" variant="secondary" onClick={() => setDeletingStudent(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                busy={action.isPending}
+                onClick={() =>
+                  action.mutate(
+                    { path: `/students/${deletingStudent.id}`, method: 'DELETE' },
+                    {
+                      onSuccess: () => {
+                        setDeletingStudent(null);
+                        void students.refetch();
+                      },
+                    },
+                  )
+                }
+              >
+                <Trash2 size={16} />
+                {t('Delete student')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </Page>
   );
 }

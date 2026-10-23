@@ -99,10 +99,10 @@ const bn: Record<string, string> = {
   'Choose your update': 'বার্তার ধরন বেছে নিন',
   'Only the selected student’s eligible contacts will be included.':
     'শুধু নির্বাচিত শিক্ষার্থীর অনুমোদিত নম্বরগুলো যুক্ত হবে।',
-  'Choose batches, or leave all unchecked for every eligible student.':
-    'ব্যাচ নির্বাচন করুন। সব যোগ্য শিক্ষার্থীকে পাঠাতে কোনো ব্যাচ নির্বাচন করবেন না।',
-  'Only permitted, active contacts are included. Missing or pending results are excluded. Overlapping selections are deduplicated; siblings still get separate results.':
-    'শুধু সক্রিয় ও অনুমতিপ্রাপ্ত নম্বর যুক্ত হবে। অসম্পূর্ণ ফলাফল বাদ যাবে। একই শিক্ষার্থী একাধিক ব্যাচে থাকলেও একবার যুক্ত হবে; ভাইবোনের ফলাফল আলাদা থাকবে।',
+  'Leave empty to include all eligible students.':
+    'সব শিক্ষার্থী রাখতে ফাঁকা রাখুন, বা নির্দিষ্ট ব্যাচ বেছে নিন।',
+  'Active permitted contacts only. Pending marks excluded, duplicates auto-merged.':
+    'শুধুমাত্র সক্রিয় ও অনুমোদিত যোগাযোগ। অসম্পূর্ণ ফলাফল বাদ এবং ডুপ্লিকেট সমন্বয় করা হবে।',
   'Write a message or choose a saved template': 'বার্তা লিখুন বা সংরক্ষিত টেমপ্লেট বেছে নিন',
   'MESSAGE PREVIEW': 'বার্তার নমুনা',
   'Your message takes shape here. Real student previews appear in the next step.':
@@ -411,6 +411,19 @@ const bn: Record<string, string> = {
   'This will permanently delete this exam, all associated subject papers, and all student results. This cannot be undone.':
     'এটি এই পরীক্ষা, সংশ্লিষ্ট সমস্ত বিষয়ের প্রশ্নপত্র এবং সমস্ত শিক্ষার্থীর ফলাফল স্থায়ীভাবে মুছে ফেলবে। এটি আর ফিরিয়ে আনা যাবে না।',
   Confirm: 'নিশ্চিত করুন',
+  'Search exams…': 'পরীক্ষা খুঁজুন…',
+  'Search batches…': 'ব্যাচ খুঁজুন…',
+  'Choose exams…': 'পরীক্ষা নির্বাচন করুন…',
+  'Choose an exam…': 'একটি পরীক্ষা নির্বাচন করুন…',
+  'exams selected': 'টি পরীক্ষা নির্বাচিত',
+  'batches selected': 'টি ব্যাচ নির্বাচিত',
+  'All students included (no batch filter)': 'সব শিক্ষার্থী অন্তর্ভুক্ত (কোনো ব্যাচ ফিল্টার নেই)',
+  'None selected': 'কোনোটি নির্বাচিত নয়',
+  selected: 'নির্বাচিত',
+  'No matches found': 'কোনো মিল পাওয়া যায়নি',
+  'Clear search': 'অনুসন্ধান মুছুন',
+  Clear: 'মুছুন',
+  Done: 'সম্পন্ন',
 };
 const LocaleContext = createContext<{
   locale: 'en' | 'bn';

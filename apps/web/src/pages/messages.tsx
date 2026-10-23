@@ -27,6 +27,7 @@ import {
   State,
   dateTime,
   MoreChoices,
+  SearchableSelect,
   useUnsaved,
 } from '../ui';
 import { VariableEditor } from './manage';
@@ -42,7 +43,9 @@ export default function MessagePages() {
 }
 function History() {
   const [cursor, setCursor] = useState('');
+  const [deletingCampaign, setDeletingCampaign] = useState<Campaign | null>(null);
   const list = useData<Paged<Campaign>>(`/campaigns?cursor=${encodeURIComponent(cursor)}`);
+  const action = useAction();
   const { permissions, center } = useCenter();
   const { t, locale } = useLocale();
   return (
@@ -63,21 +66,41 @@ function History() {
         {list.data?.items.length ? (
           <section className="panel flush">
             {list.data.items.map((campaign) => (
-              <Link className="record-row" key={campaign.id} to={`/messages/${campaign.id}`}>
-                <span className="record-icon">
-                  <MessageSquareText size={20} />
-                </span>
-                <div className="grow">
-                  <strong>{campaign.name}</strong>
-                  <small>
-                    {dateTime(campaign.created_at, center.timezone, locale)} · {campaign.total}{' '}
-                    {t('messages ·')}
-                    {campaign.delivered}
-                    {t('delivered')}
-                  </small>
-                </div>
-                <Badge status={campaign.state} />
-              </Link>
+              <div className="record-row" key={campaign.id}>
+                <Link className="record-row-content grow" to={`/messages/${campaign.id}`}>
+                  <span className="record-icon">
+                    <MessageSquareText size={20} />
+                  </span>
+                  <div className="grow">
+                    <strong>{campaign.name}</strong>
+                    <small>
+                      {dateTime(campaign.created_at, center.timezone, locale)} · {campaign.total}{' '}
+                      {t('messages ·')}
+                      {campaign.delivered}
+                      {t('delivered')}
+                    </small>
+                  </div>
+                  <Badge status={campaign.state} />
+                </Link>
+                {permissions.includes('messages.cancel') &&
+                  !['queued', 'processing'].includes(campaign.state) && (
+                    <Button
+                      variant="ghost"
+                      className="danger-icon-btn"
+                      aria-label={`Delete ${campaign.name}`}
+                      onClick={() => setDeletingCampaign(campaign)}
+                    >
+                      <Trash2 size={17} />
+                    </Button>
+                  )}
+                <Link
+                  to={`/messages/${campaign.id}`}
+                  className="row-arrow"
+                  aria-label={`View ${campaign.name}`}
+                >
+                  →
+                </Link>
+              </div>
             ))}
           </section>
         ) : (
@@ -88,6 +111,50 @@ function History() {
         )}
         <NextPage next={list.data?.next} onNext={setCursor} />
       </State>
+      <Dialog
+        title="Delete campaign"
+        open={deletingCampaign !== null}
+        onClose={() => setDeletingCampaign(null)}
+      >
+        {deletingCampaign && (
+          <div>
+            <p>
+              {t('Are you sure you want to permanently delete')}{' '}
+              <strong>{deletingCampaign.name}</strong>?
+            </p>
+            <p className="muted">
+              {t(
+                'This will permanently remove this message campaign and all its message records. This action cannot be undone.',
+              )}
+            </p>
+            <Alert error={action.error} />
+            <div className="actions">
+              <Button type="button" variant="secondary" onClick={() => setDeletingCampaign(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                busy={action.isPending}
+                onClick={() =>
+                  action.mutate(
+                    { path: `/campaigns/${deletingCampaign.id}`, method: 'DELETE' },
+                    {
+                      onSuccess: () => {
+                        setDeletingCampaign(null);
+                        void list.refetch();
+                      },
+                    },
+                  )
+                }
+              >
+                <Trash2 size={16} />
+                {t('Delete campaign')}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </Page>
   );
 }
@@ -204,32 +271,31 @@ function Compose() {
               </select>
             </Field>
             {scope !== 'announcement' && (
-              <fieldset className="field choice-fieldset">
-                <legend>{t('Select exams')}</legend>
-                <div className="choice-grid">
-                  {exams.data?.items.map((exam) => (
-                    <label className="check choice" key={exam.id}>
-                      <input
-                        type={scope === 'subject' ? 'radio' : 'checkbox'}
-                        name="exam"
-                        checked={selectedExams.includes(exam.id)}
-                        onChange={(e) => {
-                          setSelectedExams((all) =>
-                            scope === 'subject'
-                              ? [exam.id]
-                              : e.target.checked
-                                ? [...all, exam.id]
-                                : all.filter((id) => id !== exam.id),
-                          );
-                          setPaper('');
-                        }}
-                      />
-                      {exam.name}
-                    </label>
-                  ))}
-                </div>
-                <MoreChoices query={exams} />
-              </fieldset>
+              <Field label="Select exams">
+                <SearchableSelect
+                  items={exams.data?.items ?? []}
+                  selected={selectedExams}
+                  onChange={(next) => {
+                    setSelectedExams(next);
+                    setPaper('');
+                  }}
+                  single={scope === 'subject'}
+                  placeholder={t('Search exams…')}
+                  query={exams}
+                  emptyLabel={scope === 'subject' ? t('Choose an exam…') : t('Choose exams…')}
+                  summaryFormatter={(chosen) => {
+                    if (chosen.length === 0) {
+                      return scope === 'subject' ? t('Choose an exam…') : t('Choose exams…');
+                    }
+                    if (chosen.length === 1) return chosen[0]?.name ?? '';
+                    const names = chosen
+                      .map((c) => c.name)
+                      .slice(0, 2)
+                      .join(', ');
+                    return `${chosen.length} ${t('exams selected')} (${names}${chosen.length > 2 ? ', …' : ''})`;
+                  }}
+                />
+              </Field>
             )}
             {scope === 'subject' && (
               <Field label="Subject">
@@ -270,44 +336,35 @@ function Compose() {
                   ))}
                 </div>
               </fieldset>
-              <fieldset className="field choice-fieldset">
-                <legend>{t('Groups')}</legend>
-                {targetStudent ? (
-                  <p className="notice">
-                    {t('Only the selected student’s eligible contacts will be included.')}
-                  </p>
-                ) : (
-                  <>
-                    <p className="muted">
-                      {t('Choose batches, or leave all unchecked for every eligible student.')}
-                    </p>
-                    <div className="choice-grid">
-                      {groups.data?.items.map((group) => (
-                        <label className="check choice" key={group.id}>
-                          <input
-                            type="checkbox"
-                            checked={selectedGroups.includes(group.id)}
-                            onChange={(event) =>
-                              setSelectedGroups((all) =>
-                                event.target.checked
-                                  ? [...all, group.id]
-                                  : all.filter((id) => id !== group.id),
-                              )
-                            }
-                          />
-                          {group.name}
-                        </label>
-                      ))}
-                    </div>
-                    <MoreChoices query={groups} />
-                  </>
-                )}
-              </fieldset>
+              {targetStudent ? (
+                <p className="notice">
+                  {t('Only the selected student’s eligible contacts will be included.')}
+                </p>
+              ) : (
+                <Field label="Groups" hint="Leave empty to include all eligible students.">
+                  <SearchableSelect
+                    items={groups.data?.items ?? []}
+                    selected={selectedGroups}
+                    onChange={setSelectedGroups}
+                    single={false}
+                    placeholder={t('Search batches…')}
+                    query={groups}
+                    emptyLabel={t('All students included (no batch filter)')}
+                    summaryFormatter={(chosen) => {
+                      if (chosen.length === 0) return t('All students included (no batch filter)');
+                      if (chosen.length === 1) return chosen[0]?.name ?? '';
+                      const names = chosen
+                        .map((c) => c.name)
+                        .slice(0, 2)
+                        .join(', ');
+                      return `${chosen.length} ${t('batches selected')} (${names}${chosen.length > 2 ? ', …' : ''})`;
+                    }}
+                  />
+                </Field>
+              )}
             </div>
             <p className="muted recipients-note">
-              {t(
-                'Only permitted, active contacts are included. Missing or pending results are excluded. Overlapping selections are deduplicated; siblings still get separate results.',
-              )}
+              {t('Active permitted contacts only. Pending marks excluded, duplicates auto-merged.')}
             </p>
           </section>
           <section className="panel">
