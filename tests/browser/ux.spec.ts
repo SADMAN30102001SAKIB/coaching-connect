@@ -929,30 +929,56 @@ test('student contacts remain aligned and readable on narrow screens without cha
   await page.goto('/students/student-a');
   const rows = page.locator('.contact-record-row');
   await expect(rows).toHaveCount(3);
-  for (const width of info.project.use.isMobile ? [320, 390, 539] : [768, 1280]) {
+  const widths = info.project.use.isMobile ? [320, 360, 390, 539, 767] : [768, 1024, 1280];
+  async function checkLayout(width: number) {
     await page.setViewportSize({ width, height: 850 });
     const geometry = await rows.evaluateAll((items) =>
       items.map((item) => {
-        const details = item.querySelector('.contact-info');
+        const details = item.querySelector('.contact-headline');
+        const label = details?.querySelector('strong');
+        const badge = details?.querySelector('.badge');
         const phone = item.querySelector('.contact-phone');
-        if (!details || !phone) throw new Error('Contact details are missing');
+        const action = item.querySelector('.contact-action-btn');
+        if (!details || !label || !badge || !phone || !action)
+          throw new Error('Contact details are missing');
+        const labelBox = label.getBoundingClientRect();
+        const badgeBox = badge.getBoundingClientRect();
+        const phoneBox = phone.getBoundingClientRect();
+        const actionBox = action.getBoundingClientRect();
+        const headlineBox = details.getBoundingClientRect();
         return {
           display: getComputedStyle(item).display,
           inset: details.getBoundingClientRect().left - item.getBoundingClientRect().left,
           padding: parseFloat(getComputedStyle(item).paddingLeft),
           phoneClipped: phone.scrollWidth > phone.clientWidth,
+          badgeClipped: badge.scrollWidth > badge.clientWidth,
+          rowOverflow: item.scrollWidth > item.clientWidth,
+          labelAndBadgeShareRow: labelBox.top < badgeBox.bottom && badgeBox.top < labelBox.bottom,
+          badgeFollowsLabel: badgeBox.left >= labelBox.right,
+          phoneAndActionShareRow:
+            phoneBox.top < actionBox.bottom && actionBox.top < phoneBox.bottom,
+          secondRowFollowsHeadline: Math.min(phoneBox.top, actionBox.top) >= headlineBox.bottom,
+          phoneAndActionDoNotOverlap: phoneBox.right <= actionBox.left,
         };
       }),
     );
     for (const row of geometry) {
-      expect(row.display).toBe('flex');
+      expect(row.display).toBe('grid');
       expect(row.inset).toBeCloseTo(row.padding, 0);
       expect(row.phoneClipped).toBe(false);
+      expect(row.badgeClipped).toBe(false);
+      expect(row.rowOverflow).toBe(false);
+      expect(row.labelAndBadgeShareRow).toBe(true);
+      expect(row.badgeFollowsLabel).toBe(true);
+      expect(row.phoneAndActionShareRow).toBe(true);
+      expect(row.secondRowFollowsHeadline).toBe(true);
+      expect(row.phoneAndActionDoNotOverlap).toBe(true);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
   }
+  for (const width of widths) await checkLayout(width);
   await expect(rows.nth(0).getByText('SMS permitted', { exact: true })).toBeVisible();
   await expect(rows.nth(1).getByText('No SMS permission', { exact: true })).toBeVisible();
   await expect(rows.nth(2).getByText('Number blocked', { exact: true })).toBeVisible();
@@ -976,6 +1002,12 @@ test('student contacts remain aligned and readable on narrow screens without cha
   await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(rows.nth(1).getByText('No SMS permission', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'বাংলা', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'bn');
+  await page.evaluate(() => document.fonts.ready);
+  for (const width of widths) await checkLayout(width);
+  if (info.project.use.isMobile) await page.setViewportSize({ width: 320, height: 850 });
+  await page.screenshot({ path: info.outputPath('student-contacts-bangla.png'), fullPage: true });
 });
 
 test('exam groups use two mobile columns and three desktop columns while mobile keeps only the compact add subject action', async ({

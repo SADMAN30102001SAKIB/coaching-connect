@@ -648,6 +648,91 @@ describe('provider contracts', () => {
       'low_balance',
     );
   });
+  it.each([202, 1007])(
+    'preserves per-recipient receipts in a mixed batch with overall code %i',
+    (code) => {
+      const recipients = Array.from({ length: 100 }, (_, index) => ({
+        phone: `88018${String(index).padStart(8, '0')}`,
+      }));
+      const outcomes = parseSubmissions(
+        {
+          ErrorCode: code,
+          Data: recipients
+            .map(({ phone }, index) =>
+              index < 60
+                ? { Number: phone, ErrorCode: 202, MessageId: `provider-${index}` }
+                : { Number: phone, ErrorCode: 1007 },
+            )
+            .reverse(),
+        },
+        recipients,
+      );
+      expect(outcomes.slice(0, 60)).toEqual(
+        recipients
+          .slice(0, 60)
+          .map((_recipient, index) => ({ state: 'accepted', id: `provider-${index}` })),
+      );
+      expect(outcomes.slice(60).every((outcome) => outcome.state === 'low_balance')).toBe(true);
+    },
+  );
+  it('keeps missing, conflicting and ambiguous mixed-batch receipts out of automatic resumption', () => {
+    const recipients = [{ phone: '8801700000001' }, { phone: '8801700000002' }];
+    const outcomes = parseSubmissions(
+      {
+        ErrorCode: 1007,
+        Data: [{ Number: recipients[0]?.phone, ErrorCode: 202, MessageId: 'provider-accepted' }],
+      },
+      recipients,
+    );
+    expect(outcomes).toEqual([
+      { state: 'accepted', id: 'provider-accepted' },
+      expect.objectContaining({ state: 'unknown' }),
+    ]);
+    for (const item of [
+      { Number: recipients[0]?.phone, ErrorCode: 1007, MessageId: 'conflicting-receipt' },
+      { Number: recipients[0]?.phone, MessageId: 'ambiguous-receipt' },
+      { Number: '8801700000099', ErrorCode: 1007 },
+    ])
+      expect(
+        parseSubmissions({ ErrorCode: 1007, Data: [item] }, recipients).every(
+          (outcome) => outcome.state === 'unknown',
+        ),
+      ).toBe(true);
+    expect(
+      parseSubmissions({ ErrorCode: 1007, Data: [] }, recipients).every(
+        (outcome) => outcome.state === 'low_balance',
+      ),
+    ).toBe(true);
+  });
+  it('does not requeue a destination with an accepted receipt even when another entry reports low balance', () => {
+    const phone = '8801700000001';
+    expect(
+      parseSubmissions(
+        {
+          ErrorCode: 1007,
+          Data: [
+            { Number: phone, ErrorCode: 1007 },
+            { Number: phone, ErrorCode: 202, MessageId: 'provider-accepted' },
+          ],
+        },
+        [{ phone }],
+      ),
+    ).toEqual([{ state: 'accepted', id: 'provider-accepted' }]);
+  });
+  it('preserves valid receipts when another mixed-batch entry is malformed', () => {
+    expect(
+      parseSubmissions(
+        {
+          ErrorCode: 1007,
+          Data: [{ Number: '8801700000001', ErrorCode: 202, MessageId: 'provider-accepted' }, null],
+        },
+        [{ phone: '8801700000001' }, { phone: '8801700000002' }],
+      ),
+    ).toEqual([
+      { state: 'accepted', id: 'provider-accepted' },
+      expect.objectContaining({ state: 'unknown' }),
+    ]);
+  });
   it('does not accept an acknowledgement for a different destination', () => {
     expect(
       parseSubmissions(
@@ -1105,6 +1190,190 @@ describe('account activation and recovery', () => {
   });
 });
 describe('campaign edge states', () => {
+  it.each(['low balance', 'network interruption'] as const)(
+    'preserves 60 accepted recipients and safely resumes a 100-recipient campaign after %s',
+    async (failure) => {
+      const center = uid();
+      const config = uid();
+      const recipients = Array.from({ length: 100 }, (_, index) => ({
+        id: uid(),
+        contact: uid(),
+        name: `Partial recipient ${index}`,
+        phone: `88018${String(index).padStart(8, '0')}`,
+      }));
+      const records = JSON.stringify(recipients);
+      await env.DB.batch([
+        statement(
+          env.DB,
+          'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+          center,
+          'Partial sending fixture',
+          userId,
+        ),
+        statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+        statement(
+          env.DB,
+          "INSERT INTO provider_configs(id,center_id,api_key,sender_ids,batch_size,interval_seconds,created_at) VALUES(?,?,'fixture-not-a-real-key','[\"TEST\"]',?,1,?)",
+          config,
+          center,
+          failure === 'low balance' ? 100 : 60,
+          now(),
+        ),
+        statement(
+          env.DB,
+          "INSERT INTO students(id,center_id,name) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.name') FROM json_each(?)",
+          center,
+          records,
+        ),
+        statement(
+          env.DB,
+          "INSERT INTO contacts(id,center_id,phone) SELECT json_extract(value,'$.contact'),?,json_extract(value,'$.phone') FROM json_each(?)",
+          center,
+          records,
+        ),
+        statement(
+          env.DB,
+          "INSERT INTO student_contacts SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.contact'),'guardian',1 FROM json_each(?)",
+          center,
+          records,
+        ),
+      ]);
+      const created = await call(`/c/${center}/campaigns`, 'POST', {
+        name: '100 recipients with partial acceptance',
+        scope: 'announcement',
+        body: 'Hello {{student_name}}',
+        exam_ids: [],
+        paper_id: null,
+        group_ids: [],
+        student_ids: recipients.map((recipient) => recipient.id),
+        audience: 'guardian',
+        idempotency_key: uid(),
+      });
+      expect(created.status).toBe(201);
+      const id = z.string().parse(created.body['id']);
+      for (let step = 0; step < 8; step++) await processJob(bindings, id);
+      expect((await call(`/c/${center}/campaigns/${id}`)).body).toMatchObject({
+        state: 'ready_for_review',
+        total: 100,
+      });
+      expect(
+        (await call(`/c/${center}/campaigns/${id}/approve`, 'POST', { scheduled_at: null })).status,
+      ).toBe(200);
+      const requests: string[][] = [];
+      const network = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        expect(url).toBe('https://sms.ocs-api.top/api/send-bulk-sms');
+        if (typeof init?.body !== 'string') throw new Error('Expected a JSON submission body');
+        const body = z
+          .object({
+            MessageParameters: z.array(z.object({ Number: z.string(), Text: z.string() })),
+          })
+          .parse(JSON.parse(init.body));
+        const phones = body.MessageParameters.map((recipient) => recipient.Number);
+        requests.push(phones);
+        if (failure === 'network interruption' && requests.length === 2)
+          return Promise.reject(new TypeError('Fixture connection interrupted after submission'));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ErrorCode: failure === 'low balance' && requests.length === 1 ? 1007 : 202,
+              Data: phones
+                .map((phone, index) =>
+                  failure === 'low balance' && requests.length === 1 && index >= 60
+                    ? { Number: phone, ErrorCode: 1007 }
+                    : { Number: phone, ErrorCode: 202, MessageId: `fixture-${phone}` },
+                )
+                .reverse(),
+            }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      });
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const live = { ...bindings, SMS_MODE: 'live' as const };
+      try {
+        await processJob(live, id);
+        if (failure === 'network interruption') {
+          await statement(
+            env.DB,
+            'UPDATE jobs SET due_at=?,published_at=NULL WHERE id=?',
+            now(),
+            id,
+          ).run();
+          await processJob(live, id);
+        }
+        expect((await call(`/c/${center}/campaigns/${id}`)).body).toMatchObject({
+          state: 'paused',
+          submitted: 60,
+          unknown: failure === 'low balance' ? 0 : 40,
+        });
+        const pending = await rows<{ phone: string }>(
+          env.DB,
+          "SELECT phone FROM messages WHERE campaign_id=? AND state='pending'",
+          id,
+        );
+        expect(pending).toHaveLength(failure === 'low balance' ? 40 : 0);
+        expect(await one(env.DB, 'SELECT id FROM jobs WHERE id=?', id)).toBeNull();
+        const stoppedAt = requests.length;
+        await processJob(live, id);
+        expect(requests).toHaveLength(stoppedAt);
+        await statement(
+          env.DB,
+          "UPDATE balances SET balance='0.00',checked_at=? WHERE center_id=?",
+          now(),
+          center,
+        ).run();
+        const empty = await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {});
+        expect(empty.status).toBe(422);
+        expect(empty.body['error']).toMatchObject({ code: 'BALANCE_LOW' });
+        await statement(
+          env.DB,
+          "UPDATE balances SET balance='1000.00',checked_at=? WHERE center_id=?",
+          now(),
+          center,
+        ).run();
+        expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(200);
+        await processJob(live, id);
+        await statement(
+          env.DB,
+          'UPDATE jobs SET due_at=?,published_at=NULL WHERE id=?',
+          now(),
+          id,
+        ).run();
+        await processJob(live, id);
+        await processJob(live, id);
+        const final = await call(`/c/${center}/campaigns/${id}`);
+        expect(final.body).toMatchObject({
+          state: 'completed',
+          submitted: failure === 'low balance' ? 100 : 60,
+          unknown: failure === 'low balance' ? 0 : 40,
+        });
+        expect(requests).toHaveLength(2);
+        if (failure === 'low balance')
+          expect(new Set(requests[1])).toEqual(new Set(pending.map((message) => message.phone)));
+        for (const phone of requests[0]?.slice(0, 60) ?? [])
+          expect(requests.flat().filter((destination) => destination === phone)).toHaveLength(1);
+        expect(
+          await one(
+            env.DB,
+            "SELECT COUNT(*) AS count FROM attempts WHERE campaign_id=? AND outcome='accepted'",
+            id,
+          ),
+        ).toEqual({ count: failure === 'low balance' ? 100 : 60 });
+        expect(
+          await one(
+            env.DB,
+            "SELECT COUNT(*) AS count FROM messages WHERE campaign_id=? AND state IN ('pending','submitting')",
+            id,
+          ),
+        ).toEqual({ count: 0 });
+      } finally {
+        network.mockRestore();
+        log.mockRestore();
+      }
+    },
+  );
   async function draft(name: string, studentIds: string[] = []) {
     const response = await call(`/c/${centerId}/campaigns`, 'POST', {
       name,

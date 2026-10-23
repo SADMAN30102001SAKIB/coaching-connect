@@ -135,37 +135,46 @@ export function parseSubmissions(raw: unknown, recipients: { phone: string }[]):
     }));
   const data = parsed.data;
   const code = scalar(data['ErrorCode'] ?? data['error_code'] ?? data['code']);
-  if (code === '1007')
-    return recipients.map(() => ({
-      state: 'low_balance',
-      reason: 'The provider reported insufficient balance.',
-    }));
   const content = data['Data'] ?? data['data'];
-  const entries = Array.isArray(content)
-    ? z.array(object).safeParse(content)
-    : object.safeParse(content);
-  const items = entries.success
-    ? Array.isArray(entries.data)
-      ? entries.data
-      : [entries.data]
-    : [];
+  const batchRejected =
+    code === '1007' && (content == null || (Array.isArray(content) && content.length === 0));
+  const items = (Array.isArray(content) ? content : [content]).flatMap((entry) => {
+    const parsed = object.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
   return recipients.map((recipient) => {
-    const item =
-      items.find((x) => scalar(x['MobileNumber'] ?? x['Number']) === recipient.phone) ??
-      (recipients.length === 1 &&
-      items.length === 1 &&
-      !scalar(items[0]?.['MobileNumber'] ?? items[0]?.['Number'])
-        ? items[0]
-        : undefined);
-    const id = item?.['MessageId'];
-    const itemCode = scalar(item?.['ErrorCode'] ?? code);
+    const matching = items.filter(
+      (item) => scalar(item['MobileNumber'] ?? item['Number']) === recipient.phone,
+    );
+    const single = items[0];
     if (
-      typeof id === 'string' &&
-      id.length >= 8 &&
-      id.length <= 200 &&
-      ['0', '000', '202'].includes(itemCode)
+      !matching.length &&
+      recipients.length === 1 &&
+      items.length === 1 &&
+      single &&
+      !scalar(single['MobileNumber'] ?? single['Number'])
     )
-      return { state: 'accepted', id };
+      matching.push(single);
+    for (const item of matching) {
+      const id = item['MessageId'];
+      const itemCode = scalar(item['ErrorCode'] ?? code);
+      if (
+        typeof id === 'string' &&
+        id.length >= 8 &&
+        id.length <= 200 &&
+        ['0', '000', '202'].includes(itemCode)
+      )
+        return { state: 'accepted', id };
+    }
+    const rejected = matching.length === 1 ? matching[0] : undefined;
+    const receipt = rejected?.['MessageId'];
+    if (
+      batchRejected ||
+      (rejected &&
+        scalar(rejected['ErrorCode'] ?? code) === '1007' &&
+        (receipt == null || receipt === ''))
+    )
+      return { state: 'low_balance', reason: 'The provider reported insufficient balance.' };
     return {
       state: 'unknown',
       reason:

@@ -278,25 +278,21 @@ function StudentDetail() {
                     className="record-row contact-record-row"
                     key={`${contact.id}-${contact.audience}`}
                   >
-                    <div className="contact-info grow">
-                      <div className="contact-headline">
-                        <strong>
-                          {t(contact.audience === 'student' ? 'Student' : 'Guardian')}
-                        </strong>
-                        <span
-                          className={`badge ${contact.permitted && !contact.suppressed ? 'accepted' : 'paused'}`}
-                        >
-                          {t(
-                            contact.suppressed
-                              ? 'Number blocked'
-                              : contact.permitted
-                                ? 'SMS permitted'
-                                : 'No SMS permission',
-                          )}
-                        </span>
-                      </div>
-                      <small className="contact-phone">{contact.phone}</small>
+                    <div className="contact-headline">
+                      <strong>{t(contact.audience === 'student' ? 'Student' : 'Guardian')}</strong>
+                      <span
+                        className={`badge ${contact.permitted && !contact.suppressed ? 'accepted' : 'paused'}`}
+                      >
+                        {t(
+                          contact.suppressed
+                            ? 'Number blocked'
+                            : contact.permitted
+                              ? 'SMS permitted'
+                              : 'No SMS permission',
+                        )}
+                      </span>
                     </div>
+                    <small className="contact-phone">{contact.phone}</small>
                     {permissions.includes('students.update') && (
                       <Button
                         variant="ghost"
