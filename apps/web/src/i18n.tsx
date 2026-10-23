@@ -253,6 +253,11 @@ const bn: Record<string, string> = {
   'Relationship (optional)': 'সম্পর্ক (ঐচ্ছিক)',
   'Permission to send SMS': 'এসএমএস পাঠানোর অনুমতি',
   Archive: 'আর্কাইভ',
+  'Send message': 'বার্তা পাঠান',
+  'Phone numbers for SMS notifications and guardian updates':
+    'এসএমএস বিজ্ঞপ্তি ও অভিভাবক যোগাযোগের জন্য ফোন নম্বর',
+  'Remove this student from active batches and message lists. Past exam results and message history will be preserved.':
+    'আর্কাইভ করলে এই শিক্ষার্থী বর্তমান ব্যাচ ও বার্তার তালিকা থেকে বাদ পড়বে। পূর্বের ফলাফল ও বার্তার ইতিহাস সংরক্ষিত থাকবে।',
   Edit: 'সম্পাদনা',
   Date: 'তারিখ',
   'Maximum marks': 'পূর্ণমান',

@@ -839,6 +839,19 @@ select:disabled {
   gap: 10px;
   flex-wrap: wrap;
 }
+.danger-panel {
+  border-color: var(--danger-border);
+  background: var(--surface);
+  margin-top: 24px;
+}
+.danger-panel .section-header {
+  margin-bottom: 0;
+}
+.danger-panel h2 {
+  color: var(--danger-text);
+  font-size: 16px;
+  font-weight: 700;
+}
 .profile-summary {
   display: flex;
   gap: 20px;
@@ -1934,6 +1947,15 @@ dialog form > p {
     padding: 16px;
   }
   .exam-results-bar .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .danger-panel .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .danger-panel .button {
     width: 100%;
     justify-content: center;
   }

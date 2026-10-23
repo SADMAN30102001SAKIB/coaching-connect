@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router';
-import { Plus, Search, Trash2, Users } from 'lucide-react';
+import { Plus, Search, Trash2, Users, Send } from 'lucide-react';
 import type { Catalog, Contact, Page as Paged, Student } from '@coaching/domain';
 import { useAction, useCenter, useData, useChoices } from '../api';
 import { useLocale } from '../i18n';
@@ -118,11 +118,19 @@ function StudentDetail() {
       eyebrow="Student"
       title={student.data?.name ?? 'Profile'}
       action={
-        permissions.includes('students.update') && (
-          <Link className="button secondary" to={`/students/${id}/edit`}>
-            {t('Edit')}
-          </Link>
-        )
+        <div className="page-actions">
+          {permissions.includes('students.update') && (
+            <Link className="button secondary" to={`/students/${id}/edit`}>
+              {t('Edit')}
+            </Link>
+          )}
+          {permissions.includes('messages.create') && (
+            <Link className="button primary" to={`/messages/new?student=${id}`}>
+              <Send size={16} />
+              {t('Send message')}
+            </Link>
+          )}
+        </div>
       }
     >
       <State pending={student.isPending} error={student.error}>
@@ -139,7 +147,14 @@ function StudentDetail() {
               </div>
             </section>
             <section className="panel">
-              <h2>{t('Contacts')}</h2>
+              <div className="section-header">
+                <div>
+                  <h2>{t('Contacts')}</h2>
+                  <p className="muted">
+                    {t('Phone numbers for SMS notifications and guardian updates')}
+                  </p>
+                </div>
+              </div>
               {student.data.contacts.length ? (
                 student.data.contacts.map((contact) => (
                   <div className="record-row" key={`${contact.id}-${contact.audience}`}>
@@ -178,15 +193,22 @@ function StudentDetail() {
               )}
             </section>
             {permissions.includes('students.archive') && (
-              <Button variant="danger" onClick={() => setConfirm(true)}>
-                <Trash2 size={17} />
-                {t('Archive')}
-              </Button>
-            )}
-            {permissions.includes('messages.create') && (
-              <Link className="button primary" to={`/messages/new?student=${id}`}>
-                {t('Send results')}
-              </Link>
+              <section className="panel danger-panel">
+                <div className="section-header">
+                  <div>
+                    <h2>{t('Archive student')}</h2>
+                    <p className="muted">
+                      {t(
+                        'Remove this student from active batches and message lists. Past exam results and message history will be preserved.',
+                      )}
+                    </p>
+                  </div>
+                  <Button variant="danger" onClick={() => setConfirm(true)}>
+                    <Trash2 size={16} />
+                    {t('Archive')}
+                  </Button>
+                </div>
+              </section>
             )}
           </>
         )}
