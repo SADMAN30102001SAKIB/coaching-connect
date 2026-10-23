@@ -1,15 +1,25 @@
+import { useEffect, useRef } from 'react';
 import { Wallet } from 'lucide-react';
 import type { Balance } from '@coaching/domain';
-import { useAction, useCenter, useData } from '../api';
+import { ApiError, useAction, useCenter, useData } from '../api';
 import { useLocale } from '../i18n';
 import { Alert, Button, State, dateTime } from '../ui';
 
-export function BalanceCard() {
+export function BalanceCard({ autoRefresh = false }: { autoRefresh?: boolean }) {
   const { center, permissions } = useCenter();
   const { t, locale } = useLocale();
   const allowed = permissions.includes('balance.read');
   const query = useData<Balance>('/balance', allowed);
   const refresh = useAction<Balance>();
+  const automatic = useAction<Balance>();
+  const attempted = useRef(false);
+  const canRefresh = permissions.includes('balance.refresh');
+  const autoMutate = automatic.mutate;
+  useEffect(() => {
+    if (!autoRefresh || !allowed || !canRefresh || !query.isSuccess || attempted.current) return;
+    attempted.current = true;
+    autoMutate({ path: '/balance/refresh' });
+  }, [autoRefresh, allowed, canRefresh, query.isSuccess, autoMutate]);
   if (!allowed) return null;
   const data = query.data;
   return (
@@ -35,13 +45,23 @@ export function BalanceCard() {
           <small>{t('Balance is cached, not a reservation.')}</small>
         </State>
         <Alert error={refresh.error} />
+        <Alert
+          error={
+            automatic.error instanceof ApiError && automatic.error.code === 'PROVIDER_REQUIRED'
+              ? null
+              : automatic.error
+          }
+        />
       </div>
-      {permissions.includes('balance.refresh') && (
+      {canRefresh && (
         <div className="balance-actions">
           <Button
             variant="secondary"
-            busy={refresh.isPending}
-            onClick={() => refresh.mutate({ path: '/balance/refresh' })}
+            busy={refresh.isPending || automatic.isPending}
+            onClick={() => {
+              automatic.reset();
+              refresh.mutate({ path: '/balance/refresh' });
+            }}
           >
             {t('Refresh balance')}
           </Button>

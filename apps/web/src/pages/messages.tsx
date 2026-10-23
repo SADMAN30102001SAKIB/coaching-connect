@@ -580,46 +580,69 @@ function CampaignDetail() {
               </section>
             )}
             {item.state === 'ready_for_review' && (
-              <section className="panel">
-                <div className="section-header">
-                  <h2>{t('Review messages')}</h2>
-                  <span className="mini-label">{t('FINAL CHECK')}</span>
+              <section className="panel send-review" aria-labelledby="send-review-title">
+                <div>
+                  <h2 id="send-review-title">{t('Review messages')}</h2>
+                  <p className="muted">
+                    {t('Review the personalized messages below before sending.')}
+                  </p>
                 </div>
-                <p>
-                  {t(
-                    'Check the actual messages below. SMS acceptance is not proof of delivery. Segment counts are estimates; the provider determines final charges.',
+                <div className="send-controls">
+                  {permissions.includes('messages.schedule') && (
+                    <fieldset className="send-timing">
+                      <legend>{t('Send timing')}</legend>
+                      <label className="choice">
+                        <input
+                          type="radio"
+                          name="send-timing"
+                          checked={!scheduled}
+                          disabled={!permissions.includes('messages.send')}
+                          onChange={() => setScheduled(false)}
+                        />
+                        {t('Send now')}
+                      </label>
+                      <label className="choice">
+                        <input
+                          type="radio"
+                          name="send-timing"
+                          checked={scheduled}
+                          onChange={() => setScheduled(true)}
+                        />
+                        {t('Schedule')}
+                      </label>
+                    </fieldset>
                   )}
-                </p>
-                {permissions.includes('messages.schedule') && (
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={scheduled}
-                      onChange={(e) => setScheduled(e.target.checked)}
-                    />
-                    {t('Schedule send')}
-                  </label>
-                )}
-                {scheduled && (
-                  <Field label="Date" hint={`Timezone: ${center.timezone}`}>
-                    <input
-                      type="datetime-local"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      required
-                    />
-                  </Field>
-                )}
-                <Button
-                  disabled={
-                    !item.total ||
-                    !permissions.includes(scheduled ? 'messages.schedule' : 'messages.send')
-                  }
-                  onClick={() => setConfirm('send')}
-                >
-                  <Send size={17} />
-                  {t(scheduled ? 'Confirm schedule' : 'Confirm sending')}
-                </Button>
+                  {scheduled && (
+                    <Field label="Send date and time" hint={`${t('Timezone:')} ${center.timezone}`}>
+                      <input
+                        type="datetime-local"
+                        value={date}
+                        onChange={(e) => setDate(e.target.value)}
+                        required
+                      />
+                    </Field>
+                  )}
+                  <Button
+                    className="send-review-submit"
+                    disabled={
+                      !item.total ||
+                      (scheduled && !date) ||
+                      !permissions.includes(scheduled ? 'messages.schedule' : 'messages.send')
+                    }
+                    onClick={() => setConfirm('send')}
+                  >
+                    <Send size={17} />
+                    {t(scheduled ? 'Schedule messages' : 'Send messages')}
+                  </Button>
+                </div>
+                <details className="sms-details">
+                  <summary>{t('SMS details')}</summary>
+                  <p className="muted">
+                    {t(
+                      'SMS acceptance is not proof of delivery. Segment counts are estimates; the provider determines final charges.',
+                    )}
+                  </p>
+                </details>
               </section>
             )}
             {item.state === 'paused' && permissions.includes('messages.send') && (

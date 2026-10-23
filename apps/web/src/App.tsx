@@ -36,6 +36,7 @@ import {
 import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
 import { ThemePicker } from './components/ThemePicker';
+import { PageLoading, PageReady, WorkspaceLoading } from './components/PageLoading';
 import { useLocale } from './i18n';
 import {
   Alert,
@@ -119,6 +120,7 @@ export default function App() {
     void navigate('/', { replace: true });
   };
   if (new URLSearchParams(location.search).has('invite')) return <AuthScreen onDone={complete} />;
+  if (session.isPending && session.fetchStatus !== 'paused') return <WorkspaceLoading />;
   if (session.isPending)
     return (
       <main className="standalone">
@@ -155,6 +157,7 @@ export default function App() {
     clearSession(client);
     void navigate('/');
   };
+  if (centerId && !context.data && context.isFetching) return <WorkspaceLoading />;
   if (
     !centerId ||
     !context.data ||
@@ -320,82 +323,84 @@ export default function App() {
           )}
           <main className="main-content">
             <Alert error={accountError} />
-            <Suspense fallback={<Loading />}>
-              <Routes
-                key={`${location.pathname}${location.pathname === '/messages/new' ? location.search : ''}`}
-              >
-                <Route element={<Outlet />}>
-                  <Route index element={<HomePage name={user.name} />} />
-                  <Route path="students/*" element={<StudentPages />} />
-                  <Route path="exams/*" element={<ExamPages />} />
-                  <Route path="messages/*" element={<MessagePages />} />
-                  <Route path="groups/*" element={<ManagePages key="group" section="group" />} />
-                  <Route
-                    path="academic/*"
-                    element={<ManagePages key="academic" section="academic" />}
-                  />
-                  <Route
-                    path="subjects/*"
-                    element={<ManagePages key="academic" section="academic" />}
-                  />
-                  <Route
-                    path="templates/*"
-                    element={<ManagePages key="templates" section="templates" />}
-                  />
-                  <Route path="staff/*" element={<ManagePages key="staff" section="staff" />} />
-                  <Route
-                    path="settings"
-                    element={<ManagePages key="settings" section="settings" />}
-                  />
-                  <Route path="security" element={<Security />} />
-                  <Route
-                    path="platform"
-                    element={user.platform ? <Platform /> : <Navigate to="/" />}
-                  />
-                  <Route
-                    path="more"
-                    element={
-                      <Page title="More">
-                        <div className="menu-list">
-                          {more
-                            .filter(
-                              (n) => !n.permission || access.permissions.includes(n.permission),
-                            )
-                            .map((n) => (
-                              <Link to={n.path} key={n.path}>
-                                <n.icon size={22} />
-                                {t(n.label)}
-                                <ChevronDown size={16} />
-                              </Link>
-                            ))}
-                          <Link to="/security">
-                            <ShieldCheck size={22} />
-                            {t('Account security')}
-                            <ChevronDown size={16} />
-                          </Link>
-                          <button
-                            onClick={() => {
-                              signOut();
-                            }}
-                          >
-                            <LogOut size={22} />
-                            {t('Sign out')}
-                          </button>
-                        </div>
-                      </Page>
-                    }
-                  />
-                  <Route
-                    path="*"
-                    element={
-                      <Empty
-                        title="Page not found"
-                        description="Choose a page from the navigation to continue."
-                      />
-                    }
-                  />
-                </Route>
-              </Routes>
+            <Suspense fallback={<PageLoading />}>
+              <PageReady key={`${centerId}:${location.pathname}`}>
+                <Routes
+                  key={`${location.pathname}${location.pathname === '/messages/new' ? location.search : ''}`}
+                >
+                  <Route element={<Outlet />}>
+                    <Route index element={<HomePage name={user.name} />} />
+                    <Route path="students/*" element={<StudentPages />} />
+                    <Route path="exams/*" element={<ExamPages />} />
+                    <Route path="messages/*" element={<MessagePages />} />
+                    <Route path="groups/*" element={<ManagePages key="group" section="group" />} />
+                    <Route
+                      path="academic/*"
+                      element={<ManagePages key="academic" section="academic" />}
+                    />
+                    <Route
+                      path="subjects/*"
+                      element={<ManagePages key="academic" section="academic" />}
+                    />
+                    <Route
+                      path="templates/*"
+                      element={<ManagePages key="templates" section="templates" />}
+                    />
+                    <Route path="staff/*" element={<ManagePages key="staff" section="staff" />} />
+                    <Route
+                      path="settings"
+                      element={<ManagePages key="settings" section="settings" />}
+                    />
+                    <Route path="security" element={<Security />} />
+                    <Route
+                      path="platform"
+                      element={user.platform ? <Platform /> : <Navigate to="/" />}
+                    />
+                    <Route
+                      path="more"
+                      element={
+                        <Page title="More">
+                          <div className="menu-list">
+                            {more
+                              .filter(
+                                (n) => !n.permission || access.permissions.includes(n.permission),
+                              )
+                              .map((n) => (
+                                <Link to={n.path} key={n.path}>
+                                  <n.icon size={22} />
+                                  {t(n.label)}
+                                  <ChevronDown size={16} />
+                                </Link>
+                              ))}
+                            <Link to="/security">
+                              <ShieldCheck size={22} />
+                              {t('Account security')}
+                              <ChevronDown size={16} />
+                            </Link>
+                            <button
+                              onClick={() => {
+                                signOut();
+                              }}
+                            >
+                              <LogOut size={22} />
+                              {t('Sign out')}
+                            </button>
+                          </div>
+                        </Page>
+                      }
+                    />
+                    <Route
+                      path="*"
+                      element={
+                        <Empty
+                          title="Page not found"
+                          description="Choose a page from the navigation to continue."
+                        />
+                      }
+                    />
+                  </Route>
+                </Routes>
+              </PageReady>
             </Suspense>
           </main>
           <footer className="workspace-footer">
@@ -465,7 +470,7 @@ function HomePage({ name }: { name: string }) {
   return (
     <Page eyebrow="Overview" title={`${t('Welcome back')}, ${name.split(' ')[0] ?? name}`}>
       <State query={home}>
-        <BalanceCard />
+        <BalanceCard autoRefresh />
         <div className="stats-grid">
           {[
             { label: 'Students', value: home.data?.students, icon: Users, path: '/students' },

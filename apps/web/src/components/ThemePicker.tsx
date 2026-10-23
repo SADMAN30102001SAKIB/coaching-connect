@@ -1,29 +1,22 @@
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
 import { useLocale } from '../i18n';
 import { useTheme } from '../theme';
 
 export function ThemePicker() {
-  const { mode, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const { t } = useLocale();
-  const Icon = mode === 'system' ? Monitor : mode === 'dark' ? Moon : Sun;
+  const dark = theme === 'dark';
+  const Icon = dark ? Sun : Moon;
+  const label = t(dark ? 'Switch to light mode' : 'Switch to dark mode');
   return (
-    <label
+    <button
+      type="button"
       className="theme-picker"
-      title={`${t('Appearance')}: ${t(mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light')}`}
+      aria-label={label}
+      title={label}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
     >
       <Icon size={18} aria-hidden="true" />
-      <span className="sr-only">{t('Appearance')}</span>
-      <select
-        value={mode}
-        onChange={(event) => {
-          const value = event.target.value;
-          if (value === 'light' || value === 'dark' || value === 'system') setTheme(value);
-        }}
-      >
-        <option value="light">{t('Light')}</option>
-        <option value="dark">{t('Dark')}</option>
-        <option value="system">{t('System')}</option>
-      </select>
-    </label>
+    </button>
   );
 }

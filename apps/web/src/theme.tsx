@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 
@@ -12,14 +13,25 @@ type ThemeMode = 'light' | 'dark' | 'system';
 function parseMode(value: string | null | undefined): ThemeMode {
   return value === 'light' || value === 'dark' ? value : 'system';
 }
-const ThemeContext = createContext<{ mode: ThemeMode; setTheme: (mode: ThemeMode) => void } | null>(
-  null,
-);
+const subscribeScheme = (onChange: () => void) => {
+  const media = matchMedia('(prefers-color-scheme: dark)');
+  media.addEventListener('change', onChange);
+  return () => media.removeEventListener('change', onChange);
+};
+const ThemeContext = createContext<{
+  theme: 'light' | 'dark';
+  setTheme: (mode: ThemeMode) => void;
+} | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState(() =>
     parseMode(document.documentElement.dataset['themePreference']),
   );
+  const darkSystem = useSyncExternalStore(
+    subscribeScheme,
+    () => matchMedia('(prefers-color-scheme: dark)').matches,
+  );
+  const theme = mode === 'system' ? (darkSystem ? 'dark' : 'light') : mode;
   const setTheme = useCallback((next: ThemeMode) => {
     setMode(next);
     try {
@@ -29,11 +41,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   }, []);
   useEffect(() => {
-    const media = matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
       const root = document.documentElement;
       root.dataset['themePreference'] = mode;
-      root.dataset['theme'] = mode === 'system' ? (media.matches ? 'dark' : 'light') : mode;
+      root.dataset['theme'] = theme;
       document
         .querySelector('meta[name="theme-color"]')
         ?.setAttribute('content', getComputedStyle(root).getPropertyValue('--canvas').trim());
@@ -42,14 +53,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (event.key === 'theme' || event.key === null) setMode(parseMode(event.newValue));
     };
     apply();
-    if (mode === 'system') media.addEventListener('change', apply);
     window.addEventListener('storage', stored);
     return () => {
-      media.removeEventListener('change', apply);
       window.removeEventListener('storage', stored);
     };
-  }, [mode]);
-  const value = useMemo(() => ({ mode, setTheme }), [mode, setTheme]);
+  }, [mode, theme]);
+  const value = useMemo(() => ({ theme, setTheme }), [theme, setTheme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

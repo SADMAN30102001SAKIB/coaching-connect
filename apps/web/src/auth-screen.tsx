@@ -21,29 +21,31 @@ export function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () =
           <code key={code}>{code}</code>
         ))}
       </div>
-      <Button
-        variant="secondary"
-        onClick={() => {
-          const blob = new Blob([codes.join('\n')], { type: 'text/plain' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'coaching-recovery-codes.txt';
-          a.click();
-          URL.revokeObjectURL(url);
-          setSaved(true);
-        }}
-      >
-        {t('Save recovery codes')}
-      </Button>
-      <label className="check">
-        <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-        {t('I saved my codes')}
-      </label>
-      <Button disabled={!saved} onClick={onDone}>
-        <Check size={18} />
-        {t('Continue')}
-      </Button>
+      <div className="recovery-actions">
+        <Button
+          variant="secondary"
+          onClick={() => {
+            const blob = new Blob([codes.join('\n')], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'coaching-recovery-codes.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+            setSaved(true);
+          }}
+        >
+          {t('Download recovery codes')}
+        </Button>
+        <label className="check">
+          <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+          {t('I saved my codes')}
+        </label>
+        <Button disabled={!saved} onClick={onDone}>
+          <Check size={18} />
+          {t('Continue')}
+        </Button>
+      </div>
     </section>
   );
 }
@@ -271,6 +273,7 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
               ) : (
                 <Button
                   variant="ghost"
+                  className="auth-back"
                   onClick={() => {
                     mutation.reset();
                     setMode('login');
@@ -281,7 +284,7 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
                 </Button>
               )}
               {mode === 'recover' && (
-                <p className="muted">
+                <p className="muted auth-help">
                   {t(
                     'Lost your recovery codes? Contact the platform owner. A center admin cannot reset your personal password.',
                   )}

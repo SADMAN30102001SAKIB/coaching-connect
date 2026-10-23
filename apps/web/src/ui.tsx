@@ -97,12 +97,13 @@ export function Page({
   children: ReactNode;
 }) {
   const { t } = useLocale();
+  const heading = t(title);
   return (
     <>
       <header className="page-header">
         <div>
           {eyebrow && <p className="eyebrow">{t(eyebrow)}</p>}
-          <h1>{t(title)}</h1>
+          <h1 lang={/[\u0980-\u09ff]/u.test(heading) ? 'bn' : undefined}>{heading}</h1>
           {description && <p className="muted">{t(description)}</p>}
         </div>
         {action}

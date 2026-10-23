@@ -158,6 +158,52 @@ app.patch('/api/platform/centers/:id', async (c) => {
   ).run();
   return c.json({ ok: true });
 });
+app.delete('/api/platform/centers/:id', async (c) => {
+  requireRecent(c);
+  const id = z.uuid().parse(c.req.param('id'));
+  const input = z.object({ name: nameSchema }).parse(await c.req.json());
+  const center = await one<{ name: string; active: number }>(
+    c.env.DB,
+    'SELECT name,active FROM centers WHERE id=?',
+    id,
+  );
+  assert(center, 'NOT_FOUND', 'This coaching center is unavailable.', 404);
+  assert(
+    input.name === center.name,
+    'CENTER_NAME_MISMATCH',
+    'Type the exact coaching center name to confirm deletion.',
+    422,
+  );
+  assert(
+    !center.active,
+    'CENTER_DELETE_BLOCKED',
+    'Suspend this coaching center before deleting it.',
+    409,
+  );
+  try {
+    const result = await statement(
+      c.env.DB,
+      'DELETE FROM centers WHERE id=? AND name=?',
+      id,
+      input.name,
+    ).run();
+    assert(
+      result.meta.changes,
+      'CENTER_CHANGED',
+      'The coaching center changed. Reopen the deletion dialog and try again.',
+      409,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('CENTER_DELETE_BLOCKED'))
+      throw new AppError(
+        'CENTER_DELETE_BLOCKED',
+        'Suspend the center and wait for in-flight SMS submissions to finish before deleting it.',
+        409,
+      );
+    throw error;
+  }
+  return c.json({ id });
+});
 app.post('/api/platform/recovery', async (c) => {
   requireRecent(c);
   const input = z

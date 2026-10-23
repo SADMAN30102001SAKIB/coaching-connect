@@ -1,6 +1,32 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const bn: Record<string, string> = {
+  'Delete center': 'কোচিং সেন্টার মুছুন',
+  'Center ID': 'সেন্টারের আইডি',
+  'This coaching center is unavailable.': 'এই কোচিং সেন্টারটি পাওয়া যাচ্ছে না।',
+  'Type the exact coaching center name to confirm deletion.':
+    'মুছে ফেলা নিশ্চিত করতে কোচিং সেন্টারের সঠিক নাম লিখুন।',
+  'The coaching center changed. Reopen the deletion dialog and try again.':
+    'কোচিং সেন্টারের তথ্য বদলেছে। মুছে ফেলার ডায়ালগ আবার খুলে চেষ্টা করুন।',
+  'Suspend the center and wait for in-flight SMS submissions to finish before deleting it.':
+    'মুছে ফেলার আগে সেন্টারটি স্থগিত করুন এবং চলমান এসএমএস জমা দেওয়া শেষ হওয়া পর্যন্ত অপেক্ষা করুন।',
+  'Delete permanently': 'স্থায়ীভাবে মুছুন',
+  'Type the coaching center name to confirm': 'নিশ্চিত করতে কোচিং সেন্টারের নাম লিখুন',
+  'Suspend this coaching center before deleting it.': 'মুছে ফেলার আগে কোচিং সেন্টারটি স্থগিত করুন।',
+  'Permanently delete this coaching center and all its students, results, messages, staff access and SMS settings? This cannot be undone. User accounts and other coaching centers are kept. SMS already sent cannot be recalled.':
+    'এই কোচিং সেন্টার এবং এর সব শিক্ষার্থী, ফলাফল, বার্তা, কর্মীদের প্রবেশাধিকার ও এসএমএস সেটিংস স্থায়ীভাবে মুছে ফেলবেন? এটি ফেরানো যাবে না। ব্যবহারকারীর অ্যাকাউন্ট ও অন্য কোচিং সেন্টার রাখা হবে। পাঠানো এসএমএস ফেরানো যাবে না।',
+  'Download recovery codes': 'রিকভারি কোড ডাউনলোড করুন',
+  'Review the personalized messages below before sending.':
+    'পাঠানোর আগে নিচের ব্যক্তিগত বার্তাগুলো যাচাই করুন।',
+  'Send timing': 'পাঠানোর সময়',
+  Schedule: 'সময় নির্ধারণ',
+  'Send date and time': 'পাঠানোর তারিখ ও সময়',
+  'Timezone:': 'সময় অঞ্চল:',
+  'Schedule messages': 'বার্তা পাঠানোর সময় নির্ধারণ করুন',
+  'Send messages': 'বার্তা পাঠান',
+  'SMS details': 'এসএমএসের বিস্তারিত',
+  'SMS acceptance is not proof of delivery. Segment counts are estimates; the provider determines final charges.':
+    'এসএমএস গৃহীত হওয়া পৌঁছানোর প্রমাণ নয়। সেগমেন্ট সংখ্যা আনুমানিক; চূড়ান্ত খরচ সেবাদাতা নির্ধারণ করেন।',
   'This record changed elsewhere. Your edits are kept. Discard changes or reopen the editor to load the latest saved values.':
     'অন্য কেউ এই তথ্য পরিবর্তন করেছেন। আপনার লেখা রাখা হয়েছে। সর্বশেষ সংরক্ষিত তথ্য দেখতে পরিবর্তন বাতিল করুন বা এডিটর আবার খুলুন।',
   'Sign out and discard unsaved changes?': 'সংরক্ষণ না করা পরিবর্তন বাতিল করে সাইন আউট করবেন?',
@@ -27,6 +53,8 @@ const bn: Record<string, string> = {
   'Stop unsent messages? Already submitted messages cannot be recalled.':
     'বাকি বার্তা পাঠানো বন্ধ করবেন? ইতিমধ্যে পাঠানো বার্তা ফেরত নেওয়া যাবে না।',
   Appearance: 'থিম',
+  'Switch to light mode': 'হালকা থিম চালু করুন',
+  'Switch to dark mode': 'ডার্ক থিম চালু করুন',
   Light: 'হালকা',
   Dark: 'ডার্ক',
   System: 'ডিভাইস অনুযায়ী',

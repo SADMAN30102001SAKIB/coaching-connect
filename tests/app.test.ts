@@ -108,6 +108,351 @@ beforeAll(async () => {
   ]);
 });
 
+describe('platform center deletion', () => {
+  async function seed() {
+    const ids = {
+      center: uid(),
+      role: uid(),
+      subject: uid(),
+      group: uid(),
+      student: uid(),
+      contact: uid(),
+      exam: uid(),
+      paper: uid(),
+      config: uid(),
+      campaign: uid(),
+      dependent: uid(),
+      message: uid(),
+      invitation: uid(),
+    };
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO centers(id,name,owner_id,active) VALUES(?,?,?,0)',
+        ids.center,
+        'Deletion fixture',
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', ids.center, userId),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', ids.center, otherId),
+      statement(
+        env.DB,
+        'INSERT INTO roles(id,center_id,name,permissions) VALUES(?,?,?,?)',
+        ids.role,
+        ids.center,
+        'Teacher',
+        '[]',
+      ),
+      statement(env.DB, 'INSERT INTO member_roles VALUES(?,?,?)', ids.center, otherId, ids.role),
+      statement(
+        env.DB,
+        'INSERT INTO invitations(hash,center_id,user_id,created_by,expires_at) VALUES(?,?,?,?,?)',
+        ids.invitation,
+        ids.center,
+        otherId,
+        userId,
+        now() + 600000,
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO auth_claims(hash,created_at) VALUES(?,?)',
+        ids.invitation,
+        now(),
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO catalog(id,center_id,name,kind) VALUES(?,?,?,'subject')",
+        ids.subject,
+        ids.center,
+        'Physics',
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO catalog(id,center_id,name,kind) VALUES(?,?,?,'group')",
+        ids.group,
+        ids.center,
+        'Batch',
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO students(id,center_id,name) VALUES(?,?,?)',
+        ids.student,
+        ids.center,
+        'Fixture student',
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO contacts(id,center_id,phone) VALUES(?,?,?)',
+        ids.contact,
+        ids.center,
+        '8801700000013',
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO student_contacts VALUES(?,?,?,'guardian',1)",
+        ids.center,
+        ids.student,
+        ids.contact,
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO group_members(center_id,group_id,student_id,joined_at) VALUES(?,?,?,?)',
+        ids.center,
+        ids.group,
+        ids.student,
+        now(),
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO exams(id,center_id,name,exam_date) VALUES(?,?,?,?)',
+        ids.exam,
+        ids.center,
+        'Fixture exam',
+        '2026-10-24',
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO papers(id,center_id,exam_id,subject_id,maximum) VALUES(?,?,?,?,100)',
+        ids.paper,
+        ids.center,
+        ids.exam,
+        ids.subject,
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO participants VALUES(?,?,?)',
+        ids.center,
+        ids.exam,
+        ids.student,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO results(center_id,paper_id,student_id,status,score,updated_by) VALUES(?,?,?,'scored',50,?)",
+        ids.center,
+        ids.paper,
+        ids.student,
+        userId,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO templates(id,center_id,name,scope,body) VALUES(?,?,?,'announcement','Hello')",
+        uid(),
+        ids.center,
+        'Fixture template',
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO provider_configs(id,center_id,api_key,sender_ids,created_at) VALUES(?,?,'fixture-not-a-real-key','[]',?)",
+        ids.config,
+        ids.center,
+        now(),
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO balances(center_id,config_id,balance) VALUES(?,?,?)',
+        ids.center,
+        ids.config,
+        '10.00',
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO campaigns(id,center_id,name,authorizer,selection,state,revision,config_id,created_at,idempotency_key) SELECT ?,?,?,?,'{}','ready_for_review',revision,?,?,? FROM centers WHERE id=?",
+        ids.campaign,
+        ids.center,
+        'Fixture campaign',
+        userId,
+        ids.config,
+        now(),
+        uid(),
+        ids.center,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO campaigns(id,center_id,name,authorizer,selection,state,revision,created_at,idempotency_key,source_campaign_id) VALUES(?,?,?,?,'{}','cancelled',1,?,?,?)",
+        ids.dependent,
+        ids.center,
+        'Dependent campaign',
+        userId,
+        now(),
+        uid(),
+        ids.campaign,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO messages(id,center_id,campaign_id,student_id,student_name,contact_id,phone,body,segments,state,logical_key) VALUES(?,?,?,?,?,?,'8801700000013','Fixture message',1,'pending',?)",
+        ids.message,
+        ids.center,
+        ids.campaign,
+        ids.student,
+        'Fixture student',
+        ids.contact,
+        uid(),
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO campaign_exclusions VALUES(?,?,?,?,?)',
+        ids.center,
+        ids.campaign,
+        ids.student,
+        'Fixture student',
+        'Fixture exclusion',
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO campaign_transitions SELECT id,revision FROM campaigns WHERE id=?',
+        ids.campaign,
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO jobs(id,center_id,campaign_id,due_at) VALUES(?,?,?,?)',
+        ids.campaign,
+        ids.center,
+        ids.campaign,
+        now(),
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO attempts VALUES(?,?,?,?,?,'fixture')",
+        uid(),
+        ids.center,
+        ids.campaign,
+        ids.message,
+        now(),
+      ),
+    ]);
+    return ids;
+  }
+  it('requires a platform owner, recent sign-in, suspension and the exact name', async () => {
+    const id = uid();
+    await statement(
+      env.DB,
+      'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+      id,
+      'Protected fixture',
+      userId,
+    ).run();
+    const path = `/platform/centers/${id}`;
+    expect((await call(path, 'DELETE', { name: 'Protected fixture' }, '')).status).toBe(401);
+    const staffToken = secret();
+    const oldToken = secret();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+        await digest(staffToken),
+        otherId,
+        now() + 600000,
+        now(),
+      ),
+      statement(
+        env.DB,
+        'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+        await digest(oldToken),
+        userId,
+        now() + 600000,
+        now() - 660000,
+      ),
+    ]);
+    expect(
+      (await call(path, 'DELETE', { name: 'Protected fixture' }, `coaching_session=${staffToken}`))
+        .status,
+    ).toBe(403);
+    const stale = await call(
+      path,
+      'DELETE',
+      { name: 'Protected fixture' },
+      `coaching_session=${oldToken}`,
+    );
+    expect(stale.status).toBe(401);
+    expect(stale.body['error']).toMatchObject({ code: 'SIGN_IN_AGAIN' });
+    expect((await call(path, 'DELETE', { name: 'Protected fixture' })).status).toBe(409);
+    await expect(statement(env.DB, 'DELETE FROM centers WHERE id=?', id).run()).rejects.toThrow(
+      'CENTER_DELETE_BLOCKED',
+    );
+    await statement(env.DB, 'UPDATE centers SET active=0 WHERE id=?', id).run();
+    expect((await call(path, 'DELETE', { name: 'Wrong name' })).status).toBe(422);
+    expect((await call(path, 'DELETE', { name: 'Protected fixture' })).status).toBe(200);
+    expect((await call(path, 'DELETE', { name: 'Protected fixture' })).status).toBe(404);
+  });
+  it('blocks in-flight submissions without deleting any records', async () => {
+    const ids = await seed();
+    await statement(
+      env.DB,
+      "UPDATE messages SET state='submitting',submitted_at=? WHERE id=?",
+      now(),
+      ids.message,
+    ).run();
+    expect(
+      (await call(`/platform/centers/${ids.center}`, 'DELETE', { name: 'Deletion fixture' }))
+        .status,
+    ).toBe(409);
+    expect(await one(env.DB, 'SELECT id FROM centers WHERE id=?', ids.center)).not.toBeNull();
+    expect(await one(env.DB, 'SELECT id FROM students WHERE id=?', ids.student)).not.toBeNull();
+    expect(
+      await one(env.DB, 'SELECT hash FROM auth_claims WHERE hash=?', ids.invitation),
+    ).not.toBeNull();
+    await statement(env.DB, "UPDATE messages SET state='unknown' WHERE id=?", ids.message).run();
+    expect(
+      (await call(`/platform/centers/${ids.center}`, 'DELETE', { name: 'Deletion fixture' }))
+        .status,
+    ).toBe(200);
+  });
+  it('deletes the entire tenant atomically, preserves shared identities and makes old jobs harmless', async () => {
+    const ids = await seed();
+    await env.DB.exec('CREATE TABLE center_delete_probe(center_id TEXT REFERENCES centers(id));');
+    await statement(env.DB, 'INSERT INTO center_delete_probe VALUES(?)', ids.center).run();
+    try {
+      expect(
+        (await call(`/platform/centers/${ids.center}`, 'DELETE', { name: 'Deletion fixture' }))
+          .status,
+      ).toBe(422);
+      expect(await one(env.DB, 'SELECT id FROM students WHERE id=?', ids.student)).not.toBeNull();
+      expect(
+        await one(env.DB, 'SELECT hash FROM auth_claims WHERE hash=?', ids.invitation),
+      ).not.toBeNull();
+    } finally {
+      await env.DB.exec('DROP TABLE center_delete_probe;');
+    }
+    expect(
+      (await call(`/platform/centers/${ids.center}`, 'DELETE', { name: 'Deletion fixture' }))
+        .status,
+    ).toBe(200);
+    for (const table of [
+      'memberships',
+      'member_roles',
+      'roles',
+      'invitations',
+      'catalog',
+      'students',
+      'contacts',
+      'student_contacts',
+      'group_members',
+      'exams',
+      'papers',
+      'participants',
+      'results',
+      'templates',
+      'provider_configs',
+      'balances',
+      'campaigns',
+      'messages',
+      'jobs',
+      'attempts',
+      'campaign_exclusions',
+    ])
+      expect(await one(env.DB, `SELECT 1 FROM ${table} WHERE center_id=?`, ids.center)).toBeNull();
+    expect(
+      await one(env.DB, 'SELECT * FROM campaign_transitions WHERE campaign_id=?', ids.campaign),
+    ).toBeNull();
+    expect(await one(env.DB, 'SELECT * FROM auth_claims WHERE hash=?', ids.invitation)).toBeNull();
+    expect(await one(env.DB, 'SELECT id FROM centers WHERE id=?', otherCenter)).not.toBeNull();
+    for (const id of [userId, otherId])
+      expect(await one(env.DB, 'SELECT id FROM users WHERE id=?', id)).not.toBeNull();
+    expect((await call('/auth/session')).status).toBe(200);
+    await expect(processJob(bindings, ids.campaign)).resolves.toBeUndefined();
+  });
+});
+
 describe('domain rules', () => {
   it('converts center-local schedules and rejects skipped or repeated times', () => {
     expect(zonedTimestamp('2030-01-15T12:30', 'Asia/Dhaka')).toBe(
