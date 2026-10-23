@@ -233,6 +233,7 @@ function ExamDetail() {
   const { permissions } = useCenter();
   const { t } = useLocale();
   const [editing, setEditing] = useState(false);
+  const [confirmDeleteExam, setConfirmDeleteExam] = useState(false);
   const [removeGroup, setRemoveGroup] = useState<{
     id: string;
     name: string;
@@ -442,6 +443,24 @@ function ExamDetail() {
                 </Link>
               </div>
             )}
+            {permissions.includes('exams.archive') && (
+              <section className="panel danger-panel">
+                <div className="section-header">
+                  <div>
+                    <h2>{t('Delete exam')}</h2>
+                    <p className="muted">
+                      {t(
+                        'Permanently remove this exam, all papers, participants, and recorded marks.',
+                      )}
+                    </p>
+                  </div>
+                  <Button variant="danger" onClick={() => setConfirmDeleteExam(true)}>
+                    <Trash2 size={16} />
+                    {t('Delete exam')}
+                  </Button>
+                </div>
+              </section>
+            )}
             <Dialog
               title={paperEdit === 'new' ? 'Add subject' : 'Edit subject'}
               open={paperEdit !== null}
@@ -564,6 +583,43 @@ function ExamDetail() {
                 >
                   <Trash2 size={16} />
                   {t('Remove group')}
+                </Button>
+              </div>
+            </Dialog>
+            <Dialog
+              title="Delete exam"
+              open={confirmDeleteExam}
+              onClose={() => setConfirmDeleteExam(false)}
+            >
+              <p>
+                {t('Are you sure you want to delete')} <strong>{exam.data.name}</strong>?
+              </p>
+              <p className="muted">
+                {t(
+                  'This will permanently delete this exam, all associated subject papers, and all student results. This cannot be undone.',
+                )}
+              </p>
+              <Alert error={action.error} />
+              <div className="actions">
+                <Button variant="secondary" onClick={() => setConfirmDeleteExam(false)}>
+                  {t('Cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  busy={action.isPending}
+                  onClick={() => {
+                    action.mutate(
+                      { path: `/exams/${id}`, method: 'DELETE' },
+                      {
+                        onSuccess: () => {
+                          void navigate('/exams');
+                        },
+                      },
+                    );
+                  }}
+                >
+                  <Trash2 size={16} />
+                  {t('Delete exam')}
                 </Button>
               </div>
             </Dialog>

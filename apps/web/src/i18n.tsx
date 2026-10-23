@@ -402,7 +402,14 @@ const bn: Record<string, string> = {
   'Are you sure you want to sign out?': 'আপনি কি নিশ্চিতভাবে সাইন আউট করতে চান?',
   'Switch coaching center': 'কোচিং সেন্টার পরিবর্তন',
   Switch: 'পরিবর্তন করুন',
-  'Switch coaching center to': 'কোচিং সেন্টার পরিবর্তন করে নিয়ে যাবেন',
+  'Delete campaign': 'ক্যাম্পেইন মুছে ফেলুন',
+  'Permanently remove this exam, all papers, participants, and recorded marks.':
+    'এই পরীক্ষা, সমস্ত বিষয়/পেপার, শিক্ষার্থী এবং প্রাপ্ত নম্বর স্থায়ীভাবে মুছে ফেলুন।',
+  'Permanently remove this message campaign and its recorded delivery history.':
+    'এই বার্তা ক্যাম্পেইন এবং এর সমস্ত প্রেরণের তথ্য স্থায়ীভাবে মুছে ফেলুন।',
+  'Are you sure you want to delete': 'আপনি কি নিশ্চিতভাবে মুছে ফেলতে চান',
+  'This will permanently delete this exam, all associated subject papers, and all student results. This cannot be undone.':
+    'এটি এই পরীক্ষা, সংশ্লিষ্ট সমস্ত বিষয়ের প্রশ্নপত্র এবং সমস্ত শিক্ষার্থীর ফলাফল স্থায়ীভাবে মুছে ফেলবে। এটি আর ফিরিয়ে আনা যাবে না।',
   Confirm: 'নিশ্চিত করুন',
 };
 const LocaleContext = createContext<{

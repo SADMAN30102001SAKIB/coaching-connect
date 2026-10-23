@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowRight, Clock3, MessageSquareText, Plus, Send } from 'lucide-react';
+import { ArrowRight, Clock3, MessageSquareText, Plus, Send, Trash2 } from 'lucide-react';
 import {
   estimateSegments,
   zonedTimestamp,
@@ -411,7 +411,7 @@ function CampaignDetail() {
     if (canReadContent && campaignState) void refreshMessages();
   }, [canReadContent, campaignState, refreshMessages]);
   const navigate = useNavigate();
-  const [confirm, setConfirm] = useState<'send' | 'cancel' | 'retry' | null>(null);
+  const [confirm, setConfirm] = useState<'send' | 'cancel' | 'retry' | 'delete' | null>(null);
   const [scheduled, setScheduled] = useState(false);
   const [date, setDate] = useState('');
   const [localError, setLocalError] = useState<unknown>(null);
@@ -646,6 +646,24 @@ function CampaignDetail() {
                 </Button>
               )}
             </div>
+            {permissions.includes('messages.cancel') && (
+              <section className="panel danger-panel">
+                <div className="section-header">
+                  <div>
+                    <h2>{t('Delete campaign')}</h2>
+                    <p className="muted">
+                      {t(
+                        'Permanently remove this message campaign and its recorded delivery history.',
+                      )}
+                    </p>
+                  </div>
+                  <Button variant="danger" onClick={() => setConfirm('delete')}>
+                    <Trash2 size={16} />
+                    {t('Delete campaign')}
+                  </Button>
+                </div>
+              </section>
+            )}
             <Dialog
               title={
                 confirm === 'send'
@@ -654,7 +672,9 @@ function CampaignDetail() {
                     : 'Confirm sending'
                   : confirm === 'retry'
                     ? 'Review resend'
-                    : 'Cancel campaign'
+                    : confirm === 'delete'
+                      ? 'Delete campaign'
+                      : 'Cancel campaign'
               }
               open={confirm !== null}
               onClose={() => setConfirm(null)}
@@ -664,7 +684,9 @@ function CampaignDetail() {
                   ? `Approve ${item.total} personalized messages? This uses your center’s SMS balance. Pending/absent records and shared numbers must be reviewed before sending.`
                   : confirm === 'retry'
                     ? 'An uncertain message may already have reached the recipient. Sending again can deliver and charge twice. A new reviewable campaign will be created for only the selected messages.'
-                    : 'Stop messages that have not started submitting? Accepted or in-flight messages cannot be recalled.'}
+                    : confirm === 'delete'
+                      ? 'Are you sure you want to permanently delete this message campaign and all its message records? This cannot be undone.'
+                      : 'Stop messages that have not started submitting? Accepted or in-flight messages cannot be recalled.'}
               </p>
               <Alert error={action.error ?? retry.error ?? localError} />
               <div className="actions">
@@ -673,8 +695,20 @@ function CampaignDetail() {
                 </Button>
                 <Button
                   busy={action.isPending || retry.isPending}
-                  variant={confirm === 'cancel' ? 'danger' : 'primary'}
+                  variant={confirm === 'cancel' || confirm === 'delete' ? 'danger' : 'primary'}
                   onClick={() => {
+                    if (confirm === 'delete') {
+                      action.mutate(
+                        { path: `/campaigns/${id}`, method: 'DELETE' },
+                        {
+                          onSuccess: () => {
+                            setConfirm(null);
+                            void navigate('/messages');
+                          },
+                        },
+                      );
+                      return;
+                    }
                     if (confirm === 'retry') {
                       retry.mutate(
                         {
@@ -719,7 +753,9 @@ function CampaignDetail() {
                         : 'Confirm sending'
                       : confirm === 'retry'
                         ? 'Continue'
-                        : 'Cancel',
+                        : confirm === 'delete'
+                          ? 'Delete campaign'
+                          : 'Cancel',
                   )}
                 </Button>
               </div>

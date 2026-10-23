@@ -320,6 +320,65 @@ campaigns.post('/:id/cancel', async (c) => {
   ]);
   return c.json({ ok: true });
 });
+campaigns.delete('/:id', async (c) => {
+  const a = requirePermission(c, 'messages.cancel');
+  const campaignId = c.req.param('id');
+  const campaign = await one<StoredCampaign>(
+    c.env.DB,
+    'SELECT * FROM campaigns WHERE center_id=? AND id=?',
+    a.center.id,
+    campaignId,
+  );
+  assert(campaign, 'NOT_FOUND', 'This message campaign is unavailable.', 404);
+  assert(
+    !['queued', 'processing'].includes(campaign.state),
+    'CAMPAIGN_BUSY',
+    'This campaign is currently sending messages. Wait or cancel it first.',
+    409,
+  );
+
+  await c.env.DB.batch([
+    statement(
+      c.env.DB,
+      'UPDATE campaigns SET source_campaign_id=NULL WHERE center_id=? AND source_campaign_id=?',
+      a.center.id,
+      campaignId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM attempts WHERE center_id=? AND campaign_id=?',
+      a.center.id,
+      campaignId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM messages WHERE center_id=? AND campaign_id=?',
+      a.center.id,
+      campaignId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM campaign_exclusions WHERE center_id=? AND campaign_id=?',
+      a.center.id,
+      campaignId,
+    ),
+    statement(c.env.DB, 'DELETE FROM campaign_transitions WHERE campaign_id=?', campaignId),
+    statement(
+      c.env.DB,
+      'DELETE FROM jobs WHERE center_id=? AND campaign_id=?',
+      a.center.id,
+      campaignId,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM campaigns WHERE center_id=? AND id=?',
+      a.center.id,
+      campaignId,
+    ),
+  ]);
+
+  return c.json({ id: campaignId });
+});
 campaigns.post('/:id/resume', async (c) => {
   const a = requirePermission(c, 'messages.send');
   const config = await configFor(c.env.DB, a.center.id);

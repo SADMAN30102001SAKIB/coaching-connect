@@ -541,6 +541,24 @@ describe('academic records and sending', () => {
 
     // Now deleting the subject should succeed
     expect((await call(`/c/${centerId}/catalog/${examSubjectId}`, 'DELETE')).status).toBe(200);
+
+    // Deleting a campaign
+    const draftCampaign = await call(`/c/${centerId}/campaigns`, 'POST', {
+      name: 'Deletable Campaign',
+      scope: 'announcement',
+      body: 'Testing delete',
+      exam_ids: [],
+      paper_id: null,
+      group_ids: [],
+      student_ids: [],
+      audience: 'guardian',
+      idempotency_key: uid(),
+    });
+    expect(draftCampaign.status).toBe(201);
+    const delCampaignId = z.string().parse(draftCampaign.body['id']);
+    expect((await call(`/c/${centerId}/campaigns/${delCampaignId}`)).status).toBe(200);
+    expect((await call(`/c/${centerId}/campaigns/${delCampaignId}`, 'DELETE')).status).toBe(200);
+    expect((await call(`/c/${centerId}/campaigns/${delCampaignId}`)).status).toBe(404);
   });
 });
 
