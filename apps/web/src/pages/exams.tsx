@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router';
-import { Plus, GraduationCap, Trash2 } from 'lucide-react';
+import { Plus, GraduationCap, Trash2, BookOpen, Calendar, Send, Users } from 'lucide-react';
 import {
   formatScore,
   toScore,
@@ -263,23 +263,36 @@ function ExamDetail() {
       eyebrow="Exams"
       title={exam.data?.name ?? 'Exam'}
       action={
-        permissions.includes('exams.update') && (
-          <Button variant="secondary" onClick={() => setEditing(true)}>
-            {t('Edit')}
-          </Button>
-        )
+        <div className="page-actions">
+          {permissions.includes('exams.update') && (
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              {t('Edit')}
+            </Button>
+          )}
+          {permissions.includes('messages.create') && (
+            <Link className="button primary" to={`/messages/new?exam=${id}`}>
+              <Send size={16} />
+              {t('Send results')}
+            </Link>
+          )}
+        </div>
       }
     >
       <State pending={exam.isPending} error={exam.error}>
         {exam.data && (
           <>
             <div className="detail-strip">
-              <span>{exam.data.exam_date}</span>
-              <span>
+              <span className="detail-chip">
+                <Calendar size={15} />
+                {exam.data.exam_date}
+              </span>
+              <span className="detail-chip">
+                <Users size={15} />
                 <strong>{exam.data.participants}</strong> {t('Participants')}
               </span>
-              <span>
-                {exam.data.papers.length} {t('subjects')}
+              <span className="detail-chip">
+                <BookOpen size={15} />
+                <strong>{exam.data.papers.length}</strong> {t('subjects')}
               </span>
             </div>
             {permissions.includes('exams.update') && (
@@ -291,7 +304,7 @@ function ExamDetail() {
                   )}
                 </p>
                 <form
-                  className="inline-form"
+                  className="inline-form add-participants-form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     const f = new FormData(e.currentTarget);
@@ -312,6 +325,7 @@ function ExamDetail() {
                     </select>
                   </Field>
                   <Button type="submit" busy={action.isPending}>
+                    <Users size={16} />
                     {t('Add participants')}
                   </Button>
                 </form>
@@ -324,37 +338,90 @@ function ExamDetail() {
                 )}
               </section>
             )}
-            <div className="exam-grid">
+            <div className="section-header">
+              <div>
+                <h2>{t('Subjects')}</h2>
+                <p className="muted">{t('Configure subject papers and score limits')}</p>
+              </div>
               {permissions.includes('exams.update') && (
                 <Button variant="secondary" onClick={() => setPaperEdit('new')}>
+                  <Plus size={16} />
                   {t('Add subject')}
                 </Button>
               )}
-              {exam.data.papers.map((paper) => (
-                <section className="panel exam-card" key={paper.id}>
-                  <div className="section-header">
-                    <h2>{paper.name}</h2>
-                    {permissions.includes('exams.update') && (
-                      <Button variant="ghost" onClick={() => setPaperEdit(paper)}>
-                        {t('Edit')}
-                      </Button>
-                    )}
-                  </div>
-                  <p className="muted">
-                    {t('Maximum marks')}: {formatScore(paper.maximum)}
-                  </p>
-                  {permissions.includes('results.read') && (
-                    <Link className="button secondary" to={`/exams/${id}/marks/${paper.id}`}>
-                      {t('Enter marks')} →
-                    </Link>
-                  )}
-                </section>
-              ))}
             </div>
-            {permissions.includes('messages.create') && (
-              <Link className="button primary" to={`/messages/new?exam=${id}`}>
-                {t('Send results')}
-              </Link>
+            {exam.data.papers.length === 0 && !permissions.includes('exams.update') ? (
+              <Empty
+                title="No subjects added yet"
+                description="This exam does not have any subjects configured."
+              />
+            ) : (
+              <div className="exam-grid">
+                {exam.data.papers.map((paper) => (
+                  <section className="panel exam-card" key={paper.id}>
+                    <div className="exam-card-header">
+                      <div className="exam-card-title">
+                        <span className="exam-subject-badge">
+                          <BookOpen size={18} />
+                        </span>
+                        <h2>{paper.name}</h2>
+                      </div>
+                      {permissions.includes('exams.update') && (
+                        <Button variant="ghost" onClick={() => setPaperEdit(paper)}>
+                          {t('Edit')}
+                        </Button>
+                      )}
+                    </div>
+                    <div className="exam-card-body">
+                      <div className="exam-metric">
+                        <span className="muted">{t('Maximum marks')}</span>
+                        <strong>{formatScore(paper.maximum)}</strong>
+                      </div>
+                      {paper.pass_mark !== null && (
+                        <div className="exam-metric">
+                          <span className="muted">{t('Pass mark')}</span>
+                          <strong>{formatScore(paper.pass_mark)}</strong>
+                        </div>
+                      )}
+                    </div>
+                    {permissions.includes('results.read') && (
+                      <Link
+                        className="button secondary exam-enter-marks"
+                        to={`/exams/${id}/marks/${paper.id}`}
+                      >
+                        {t('Enter marks')} →
+                      </Link>
+                    )}
+                  </section>
+                ))}
+                {permissions.includes('exams.update') && (
+                  <button
+                    type="button"
+                    className="add-subject-card"
+                    onClick={() => setPaperEdit('new')}
+                  >
+                    <div className="add-subject-icon">
+                      <Plus size={22} />
+                    </div>
+                    <strong>{t('Add subject')}</strong>
+                    <span className="muted">{t('Add another subject paper')}</span>
+                  </button>
+                )}
+              </div>
+            )}
+            {permissions.includes('messages.create') && exam.data.papers.length > 0 && (
+              <div className="exam-results-bar">
+                <div>
+                  <h3>{t('Publish Results')}</h3>
+                  <p className="muted">
+                    {t('Ready to share scores with students and parents via SMS?')}
+                  </p>
+                </div>
+                <Link className="button primary" to={`/messages/new?exam=${id}`}>
+                  <Send size={16} />
+                  {t('Send results')}
+                </Link>
+              </div>
             )}
             <Dialog
               title={paperEdit === 'new' ? 'Add subject' : 'Edit subject'}

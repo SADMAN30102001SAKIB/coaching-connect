@@ -258,6 +258,13 @@ const bn: Record<string, string> = {
   'Maximum marks': 'পূর্ণমান',
   'Pass mark (optional)': 'পাস নম্বর (ঐচ্ছিক)',
   'Add subject': 'বিষয় যোগ করুন',
+  'Add another subject paper': 'আরেকটি বিষয় যোগ করুন',
+  Subjects: 'বিষয়সমূহ',
+  'Configure subject papers and score limits': 'বিষয় ও পূর্ণমান নির্ধারণ করুন',
+  'Pass mark': 'পাস নম্বর',
+  'Publish Results': 'ফলাফল প্রকাশ ও পাঠান',
+  'Ready to share scores with students and parents via SMS?':
+    'শিক্ষার্থী ও অভিভাবকদের এসএমএস-এর মাধ্যমে নম্বর পাঠাতে প্রস্তুত?',
   Participants: 'অংশগ্রহণকারী',
   'Add participants': 'অংশগ্রহণকারী যোগ করুন',
   'Enter marks': 'নম্বর লিখুন',
