@@ -609,7 +609,7 @@ function StudentForm({ initial: incoming }: { initial?: Detail }) {
             </State>
           </section>
           <Alert error={action.error} />
-          <div className="sticky-actions">
+          <div className="form-actions">
             <span>{t(dirty ? 'Unsaved changes' : 'Saved')}</span>
             <div className="actions">
               <Link

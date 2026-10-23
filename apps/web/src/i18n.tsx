@@ -31,7 +31,6 @@ const bn: Record<string, string> = {
     'অন্য কেউ এই তথ্য পরিবর্তন করেছেন। আপনার লেখা রাখা হয়েছে। সর্বশেষ সংরক্ষিত তথ্য দেখতে পরিবর্তন বাতিল করুন বা এডিটর আবার খুলুন।',
   'Sign out and discard unsaved changes?': 'সংরক্ষণ না করা পরিবর্তন বাতিল করে সাইন আউট করবেন?',
   'Unsaved changes will be discarded.': 'সংরক্ষণ না করা পরিবর্তন বাতিল হবে।',
-  'Updating…': 'হালনাগাদ হচ্ছে…',
   'Showing saved data. Reconnect or try again to update.':
     'সংরক্ষিত তথ্য দেখানো হচ্ছে। হালনাগাদ করতে ইন্টারনেটে যুক্ত হন বা আবার চেষ্টা করুন।',
   'You are offline. Reconnect to load this screen.':

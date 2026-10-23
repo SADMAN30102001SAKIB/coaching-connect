@@ -1,6 +1,6 @@
 {
   "name": "Coaching Connect",
-  "short_name": "Connect",
+  "short_name": "SMS",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

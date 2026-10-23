@@ -278,7 +278,7 @@ function CreateExam() {
             )}
           </section>
           <Alert error={action.error ?? error} />
-          <div className="sticky-actions">
+          <div className="form-actions">
             <Link to="/exams" className="button secondary">
               {t('Cancel')}
             </Link>
@@ -995,7 +995,7 @@ function MarksForm({
               />
             )}
           </section>
-          <div className="sticky-actions">
+          <div className="form-actions">
             <span aria-live="polite">
               {dirty ? `${Object.keys(changes).length} ${t('Unsaved changes')}` : null}
             </span>

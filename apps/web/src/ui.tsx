@@ -177,11 +177,6 @@ export function State({
   const paused = query.fetchStatus === 'paused';
   return (
     <div className="query-state" aria-busy={query.isFetching}>
-      {hasData && query.isFetching && (
-        <span className="refresh-indicator" role="status">
-          {t('Updating…')}
-        </span>
-      )}
       {(query.error || paused) && (
         <div className="query-notice" role="status">
           <span>

@@ -790,13 +790,6 @@ select:disabled {
   position: relative;
   min-width: 0;
 }
-.refresh-indicator {
-  position: absolute;
-  top: -20px;
-  right: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
 .query-notice {
   display: flex;
   align-items: center;
@@ -936,14 +929,11 @@ select:disabled {
   justify-content: flex-end;
   margin: 20px 0;
 }
-.sticky-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  background: var(--canvas);
+.form-actions {
   border-top: 1px solid var(--border);
   padding: 16px 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1281,16 +1271,18 @@ select:disabled {
   margin: 0 0 14px;
 }
 .group-chips-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .participating-group-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
+  min-width: 0;
+  gap: 12px;
+  padding: 12px;
   background: var(--surface-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1302,13 +1294,19 @@ select:disabled {
 .participating-group-row .group-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.participating-group-row .group-info > div {
+  min-width: 0;
 }
 .participating-group-row .group-icon {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: 8px;
   background: var(--surface);
   color: var(--primary);
@@ -1323,6 +1321,8 @@ select:disabled {
   font-size: 12px;
 }
 .participating-group-row .button {
+  width: 100%;
+  justify-content: center;
   min-height: 34px;
   padding: 6px 12px;
   font-size: 12px;
@@ -2374,9 +2374,6 @@ dialog .actions {
   .workspace-footer {
     display: none;
   }
-  .sticky-actions {
-    bottom: 72px;
-  }
   .auth-story {
     padding: 32px;
   }
@@ -2391,16 +2388,15 @@ dialog .actions {
   }
 }
 @media (max-width: 767px) {
+  .group-chips-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .add-subject-card {
+    display: none;
+  }
   .compose-layout {
     display: flex;
     flex-direction: column;
-  }
-  .compose-layout .sticky-actions {
-    position: static;
-    bottom: auto;
-    padding: 16px 0 0;
-    margin-top: 12px;
-    border-top: 1px solid var(--border);
   }
   .compose-aside {
     position: static;
@@ -2660,7 +2656,7 @@ dialog .actions {
     align-items: center;
   }
   .record-row-content,
-  .record-row:not(:has(.record-row-content)):has(.badge) {
+  .record-row:not(:has(.record-row-content)):has(> .badge) {
     display: grid;
     grid-template-columns: auto 1fr;
     column-gap: 10px;
@@ -2671,19 +2667,19 @@ dialog .actions {
   }
   .record-row-content .record-icon,
   .record-row-content .initial-avatar,
-  .record-row:not(:has(.record-row-content)):has(.badge) > .record-icon,
-  .record-row:not(:has(.record-row-content)):has(.badge) > .initial-avatar {
+  .record-row:not(:has(.record-row-content)):has(> .badge) > .record-icon,
+  .record-row:not(:has(.record-row-content)):has(> .badge) > .initial-avatar {
     grid-row: 1 / -1;
     align-self: flex-start;
     margin-top: 2px;
   }
   .record-row-content .grow,
-  .record-row:not(:has(.record-row-content)):has(.badge) > .grow {
+  .record-row:not(:has(.record-row-content)):has(> .badge) > .grow {
     grid-column: 2;
     min-width: 0;
   }
   .record-row-content .grow strong,
-  .record-row:not(:has(.record-row-content)):has(.badge) > .grow strong {
+  .record-row:not(:has(.record-row-content)):has(> .badge) > .grow strong {
     font-size: 13.5px;
     line-height: 1.3;
     display: -webkit-box;
@@ -2694,7 +2690,7 @@ dialog .actions {
     white-space: normal;
   }
   .record-row-content .grow small,
-  .record-row:not(:has(.record-row-content)):has(.badge) > .grow small {
+  .record-row:not(:has(.record-row-content)):has(> .badge) > .grow small {
     font-size: 11px;
     color: var(--muted);
     display: block;
@@ -2705,7 +2701,7 @@ dialog .actions {
     text-overflow: ellipsis;
   }
   .record-row-content .badge,
-  .record-row:not(:has(.record-row-content)):has(.badge) > .badge {
+  .record-row:not(:has(.record-row-content)):has(> .badge) > .badge {
     grid-column: 2;
     justify-self: flex-start;
     margin-top: 2px;
@@ -2835,22 +2831,19 @@ dialog .actions {
     justify-content: center;
   }
   .participating-group-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
+    padding: 10px;
   }
-  .participating-group-row .button {
-    width: 100%;
-    justify-content: center;
+  .participating-group-row .group-icon {
+    width: 24px;
+    height: 24px;
   }
-  .sticky-actions {
+  .form-actions {
     display: flex;
     gap: 8px;
     padding: 12px 0;
-    bottom: 70px;
   }
-  .sticky-actions .button,
-  .sticky-actions a.button {
+  .form-actions .button,
+  .form-actions a.button {
     flex: 1 1 0px;
     min-height: 42px;
     justify-content: center;

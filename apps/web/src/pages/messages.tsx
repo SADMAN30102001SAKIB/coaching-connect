@@ -417,7 +417,7 @@ function Compose() {
             />
           </section>
           <Alert error={action.error} />
-          <div className="sticky-actions">
+          <div className="form-actions">
             <Link className="button secondary" to="/messages">
               {t('Cancel')}
             </Link>

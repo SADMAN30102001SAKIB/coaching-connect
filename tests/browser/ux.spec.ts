@@ -4,6 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 async function fixture(page: Page, extraPermissions: string[] = []) {
   const control = {
     failExam: false,
+    multipleExamGroups: false,
     failMarks: false,
     malformedSession: false,
     authenticated: true,
@@ -190,7 +191,17 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
     }
     if (path.endsWith('/exams/exam-a')) {
       if (control.failExam) return route.abort('failed');
-      return json(exam);
+      return json({
+        ...exam,
+        groups: control.multipleExamGroups
+          ? ['Class 3', 'Class 4', 'Class 5', 'Long coaching group name'].map((name, index) => ({
+              ...group,
+              id: `group-${index}`,
+              name,
+              count: index + 1,
+            }))
+          : exam.groups,
+      });
     }
     if (path.endsWith('/exams')) return json({ items: [exam], next: null });
     if (path.endsWith('/students')) return json({ items: students, next: null });
@@ -816,6 +827,245 @@ test('cancelled modal drafts reset and ordinary edits preserve active records', 
   await page.getByRole('dialog').getByRole('button', { name: 'Save role', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(control.writes.at(-1)?.body).not.toHaveProperty('active', 0);
+});
+
+test('all five form screens keep their actions after the fields rather than floating over content', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  await page.setViewportSize({ width: info.project.use.isMobile ? 320 : 1280, height: 800 });
+  const paths = [
+    '/students/new',
+    '/students/student-a/edit',
+    '/exams/new',
+    '/exams/exam-a/marks/paper-a',
+    '/messages/new',
+  ];
+  for (const [index, path] of paths.entries()) {
+    await page.goto(path);
+    const actions = page.locator('.form-actions');
+    await expect(actions).toHaveCount(1);
+    const layout = await actions.evaluate((element) => {
+      const previous = element.previousElementSibling;
+      const style = getComputedStyle(element);
+      if (!previous) throw new Error('The form fields are missing');
+      return {
+        position: style.position,
+        bottom: style.bottom,
+        last: element.parentElement?.lastElementChild === element,
+        followsFields:
+          element.getBoundingClientRect().top >= previous.getBoundingClientRect().bottom,
+      };
+    });
+    expect(layout).toEqual({ position: 'static', bottom: 'auto', last: true, followsFields: true });
+    await actions.scrollIntoViewIfNeeded();
+    await expect(
+      actions.getByRole('button', { name: /Save|Create exam|Prepare preview/ }),
+    ).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    if (info.project.use.isMobile) {
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      const footer = await actions.boundingBox();
+      const navigation = await page.locator('.bottom-nav').boundingBox();
+      if (!footer || !navigation) throw new Error('Footer geometry is missing');
+      expect(footer.y + footer.height).toBeLessThanOrEqual(navigation.y);
+    }
+    await page.screenshot({ path: info.outputPath(`form-footer-${index}.png`), fullPage: true });
+  }
+});
+
+test('student contacts remain aligned and readable on narrow screens without changing suppression or SMS permission', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  const contacts = [
+    {
+      id: 'contact-guardian',
+      phone: '8801723458794',
+      audience: 'guardian',
+      permitted: 1,
+      suppressed: 0,
+    },
+    {
+      id: 'contact-student',
+      phone: '8801648234724',
+      audience: 'student',
+      permitted: 0,
+      suppressed: 0,
+    },
+    {
+      id: 'contact-blocked',
+      phone: '8801712345678',
+      audience: 'guardian',
+      permitted: 1,
+      suppressed: 1,
+    },
+  ];
+  await page.route('**/api/c/center-a/students/student-a', (route) =>
+    route.fulfill({
+      json: {
+        id: 'student-a',
+        name: 'Student A',
+        identifier: '',
+        version: 1,
+        active: 1,
+        groups: [],
+        contacts,
+      },
+    }),
+  );
+  await page.route('**/api/c/center-a/contacts/*/suppression', async (route) => {
+    const contact = contacts.find((item) =>
+      route.request().url().includes(`/contacts/${item.id}/`),
+    );
+    if (!contact) throw new Error('Contact fixture is missing');
+    const body = route.request().postDataJSON() as { suppressed: boolean; expected: boolean };
+    expect(body.expected).toBe(Boolean(contact.suppressed));
+    contact.suppressed = Number(body.suppressed);
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto('/students/student-a');
+  const rows = page.locator('.contact-record-row');
+  await expect(rows).toHaveCount(3);
+  for (const width of info.project.use.isMobile ? [320, 390, 539] : [768, 1280]) {
+    await page.setViewportSize({ width, height: 850 });
+    const geometry = await rows.evaluateAll((items) =>
+      items.map((item) => {
+        const details = item.querySelector('.contact-info');
+        const phone = item.querySelector('.contact-phone');
+        if (!details || !phone) throw new Error('Contact details are missing');
+        return {
+          display: getComputedStyle(item).display,
+          inset: details.getBoundingClientRect().left - item.getBoundingClientRect().left,
+          padding: parseFloat(getComputedStyle(item).paddingLeft),
+          phoneClipped: phone.scrollWidth > phone.clientWidth,
+        };
+      }),
+    );
+    for (const row of geometry) {
+      expect(row.display).toBe('flex');
+      expect(row.inset).toBeCloseTo(row.padding, 0);
+      expect(row.phoneClipped).toBe(false);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  await expect(rows.nth(0).getByText('SMS permitted', { exact: true })).toBeVisible();
+  await expect(rows.nth(1).getByText('No SMS permission', { exact: true })).toBeVisible();
+  await expect(rows.nth(2).getByText('Number blocked', { exact: true })).toBeVisible();
+  if (info.project.use.isMobile) await page.setViewportSize({ width: 320, height: 850 });
+  await page.screenshot({ path: info.outputPath('student-contacts.png'), fullPage: true });
+  await rows.first().getByRole('button', { name: 'Block number', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(contacts[0]?.phone ?? 'Missing phone');
+  await expect(dialog).toContainText('stops SMS for every student sharing it');
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(rows.first().getByText('Number blocked', { exact: true })).toBeVisible();
+  await rows.first().getByRole('button', { name: 'Unblock number', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(rows.first().getByText('SMS permitted', { exact: true })).toBeVisible();
+  await rows.nth(1).getByRole('button', { name: 'Block number', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await rows.nth(1).getByRole('button', { name: 'Unblock number', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(rows.nth(1).getByText('No SMS permission', { exact: true })).toBeVisible();
+});
+
+test('exam groups use two mobile columns and three desktop columns while mobile keeps only the compact add subject action', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  control.multipleExamGroups = true;
+  await page.goto('/exams/exam-a');
+  const cards = page.locator('.participating-group-row');
+  await expect(cards).toHaveCount(4);
+  const mobile = Boolean(info.project.use.isMobile);
+  const columns = mobile ? 2 : 3;
+  for (const width of mobile ? [320, 390, 767] : [768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 850 });
+    const boxes = await cards.evaluateAll((items) =>
+      items.map((item) => {
+        const { x, y } = item.getBoundingClientRect();
+        return { x, y };
+      }),
+    );
+    const first = boxes[0];
+    const nextRow = boxes[columns];
+    if (!first || !nextRow) throw new Error('Group card rows are missing');
+    for (let column = 1; column < columns; column++) {
+      const current = boxes[column];
+      const previous = boxes[column - 1];
+      if (!current || !previous) throw new Error('Group card columns are missing');
+      expect(current.y).toBe(first.y);
+      expect(current.x).toBeGreaterThan(previous.x);
+    }
+    expect(nextRow.y).toBeGreaterThan(first.y);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    expect(
+      await cards.evaluateAll((items) =>
+        items.every((item) => item.scrollWidth <= item.clientWidth),
+      ),
+    ).toBe(true);
+    if (mobile) await expect(page.locator('.add-subject-card')).toBeHidden();
+    else await expect(page.locator('.add-subject-card')).toBeVisible();
+  }
+  if (mobile) await page.setViewportSize({ width: 320, height: 850 });
+  await page.screenshot({ path: info.outputPath('exam-group-columns.png'), fullPage: true });
+  await cards.first().getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Class 3');
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Add subject', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Add subject', exact: true })).toBeVisible();
+});
+
+test('cached page visits refresh silently without replacing content or shifting layout', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  await page.goto('/exams/exam-a');
+  const participants = page.getByRole('heading', { name: 'Participants', exact: true });
+  await expect(participants).toBeVisible();
+  const before = await participants.boundingBox();
+  await page.getByRole('link', { name: 'Exams', exact: true }).click();
+  let release!: () => void;
+  let started!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  await page.route('**/api/c/center-a/exams/exam-a', async (route) => {
+    started();
+    await pending;
+    await route.fallback();
+  });
+  await page.getByRole('link', { name: /Demo Exam - 1/ }).click();
+  await requested;
+  try {
+    await expect(page.locator('.query-state[aria-busy="true"]')).toHaveCount(1);
+    await expect(participants).toBeVisible();
+    await expect(page.getByText('Updating…', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('status', { name: 'Loading…', exact: true })).toHaveCount(0);
+    expect(await participants.boundingBox()).toEqual(before);
+    await page.screenshot({
+      path: info.outputPath('silent-background-refresh.png'),
+      fullPage: true,
+    });
+  } finally {
+    release();
+  }
+  await expect(page.locator('.query-state[aria-busy="true"]')).toHaveCount(0);
+  await expect(participants).toBeVisible();
 });
 
 test('temporary refresh failures preserve content and recover without reloading', async ({
