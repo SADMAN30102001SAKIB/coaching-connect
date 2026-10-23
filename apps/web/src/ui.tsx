@@ -193,6 +193,15 @@ export function Dialog({
     if (open) ref.current?.showModal();
     else ref.current?.close();
   }, [open]);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    const handleClick = (e: MouseEvent) => {
+      if (e.target === dialog) onClose();
+    };
+    dialog.addEventListener('click', handleClick);
+    return () => dialog.removeEventListener('click', handleClick);
+  }, [onClose]);
   return (
     <dialog ref={ref} onCancel={onClose} aria-labelledby={id}>
       <div className="dialog-header">
@@ -203,6 +212,40 @@ export function Dialog({
       </div>
       {children}
     </dialog>
+  );
+}
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  danger = false,
+  open,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  open: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = useLocale();
+  return (
+    <Dialog title={title} open={open} onClose={onCancel}>
+      <p>{t(message)}</p>
+      <div className="actions">
+        <Button variant="secondary" type="button" onClick={onCancel}>
+          {t(cancelLabel)}
+        </Button>
+        <Button variant={danger ? 'danger' : 'primary'} type="button" onClick={onConfirm}>
+          {t(confirmLabel)}
+        </Button>
+      </div>
+    </Dialog>
   );
 }
 export function NextPage({

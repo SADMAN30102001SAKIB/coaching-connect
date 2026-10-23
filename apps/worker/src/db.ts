@@ -13,21 +13,3 @@ export function uid(): string {
 export function now(): number {
   return Date.now();
 }
-export function audit(
-  db: D1Database,
-  center: string | null,
-  user: string,
-  action: string,
-  target: string,
-): D1PreparedStatement {
-  return statement(
-    db,
-    'INSERT INTO audit VALUES(?,?,?,?,?,?)',
-    uid(),
-    center,
-    user,
-    action,
-    target,
-    now(),
-  );
-}

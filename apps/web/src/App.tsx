@@ -29,7 +29,7 @@ import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
 import { ThemePicker } from './components/ThemePicker';
 import { useLocale } from './i18n';
-import { Alert, Badge, Button, Empty, Loading, Page, State, dateTime } from './ui';
+import { Alert, Badge, Button, ConfirmDialog, Empty, Loading, Page, State, dateTime } from './ui';
 
 const StudentPages = lazy(() => import('./pages/students'));
 const ExamPages = lazy(() => import('./pages/exams'));
@@ -59,6 +59,8 @@ export default function App() {
   const { t, toggle, locale } = useLocale();
   const [accountError, setAccountError] = useState<unknown>();
   const [selected, setSelected] = useState(() => localStorage.getItem('center') ?? '');
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [pendingCenter, setPendingCenter] = useState<string | null>(null);
   const online = useSyncExternalStore(onlineSubscribe, () => navigator.onLine);
   const session = useQuery({
     queryKey: ['session'],
@@ -103,8 +105,10 @@ export default function App() {
       <AuthScreen onDone={complete} />
     );
   const user = session.data.user;
-  const signOut = async () => {
-    if (!window.confirm(t('Sign out? Unsaved changes on this page will be lost.'))) return;
+  const signOut = () => {
+    setConfirmSignOut(true);
+  };
+  const executeSignOut = async () => {
     try {
       await request('/auth/logout', 'POST', {});
     } catch (error) {
@@ -130,7 +134,7 @@ export default function App() {
             <Button
               variant="secondary"
               onClick={() => {
-                void signOut();
+                signOut();
               }}
             >
               {t('Sign out')}
@@ -150,12 +154,24 @@ export default function App() {
             />
           </State>
         )}
+        <ConfirmDialog
+          open={confirmSignOut}
+          title="Sign out"
+          message="Are you sure you want to sign out?"
+          confirmLabel="Sign out"
+          danger
+          onConfirm={() => {
+            setConfirmSignOut(false);
+            void executeSignOut();
+          }}
+          onCancel={() => setConfirmSignOut(false)}
+        />
       </main>
     );
   const access = context.data;
   const more = [
     { path: '/groups', label: 'Groups', permission: 'groups.read', icon: Users },
-    { path: '/academic', label: 'Academic setup', permission: 'academic.read', icon: BookOpen },
+    { path: '/academic', label: 'Subjects', permission: 'academic.read', icon: BookOpen },
     {
       path: '/templates',
       label: 'Templates',
@@ -213,7 +229,7 @@ export default function App() {
             )}
             <button
               onClick={() => {
-                void signOut();
+                signOut();
               }}
             >
               <LogOut size={18} />
@@ -227,18 +243,9 @@ export default function App() {
               <span className="center-avatar">{access.center.name.slice(0, 1)}</span>
               <select
                 aria-label="Coaching center"
-                value={centerId}
+                value={pendingCenter ?? centerId}
                 onChange={(e) => {
-                  if (
-                    !window.confirm(
-                      t('Switch coaching center? Unsaved changes on this page will be lost.'),
-                    )
-                  )
-                    return;
-                  localStorage.setItem('center', e.target.value);
-                  client.removeQueries({ queryKey: ['data'] });
-                  setSelected(e.target.value);
-                  void navigate('/');
+                  setPendingCenter(e.target.value);
                 }}
               >
                 {session.data.centers.map((center) => (
@@ -281,6 +288,10 @@ export default function App() {
                     element={<ManagePages key="academic" section="academic" />}
                   />
                   <Route
+                    path="subjects/*"
+                    element={<ManagePages key="academic" section="academic" />}
+                  />
+                  <Route
                     path="templates/*"
                     element={<ManagePages key="templates" section="templates" />}
                   />
@@ -317,7 +328,7 @@ export default function App() {
                           </Link>
                           <button
                             onClick={() => {
-                              void signOut();
+                              signOut();
                             }}
                           >
                             <LogOut size={22} />
@@ -354,6 +365,36 @@ export default function App() {
               </NavLink>
             ))}
         </nav>
+        <ConfirmDialog
+          open={confirmSignOut}
+          title="Sign out"
+          message="Are you sure you want to sign out?"
+          confirmLabel="Sign out"
+          danger
+          onConfirm={() => {
+            setConfirmSignOut(false);
+            void executeSignOut();
+          }}
+          onCancel={() => setConfirmSignOut(false)}
+        />
+        <ConfirmDialog
+          open={Boolean(pendingCenter)}
+          title="Switch coaching center"
+          message={
+            pendingCenter
+              ? `${t('Switch coaching center to')} "${session.data.centers.find((c) => c.id === pendingCenter)?.name ?? pendingCenter}"?`
+              : 'Switch coaching center?'
+          }
+          confirmLabel="Switch"
+          onConfirm={() => {
+            if (pendingCenter) {
+              localStorage.setItem('center', pendingCenter);
+              setSelected(pendingCenter);
+            }
+            setPendingCenter(null);
+          }}
+          onCancel={() => setPendingCenter(null)}
+        />
       </div>
     </CenterContext.Provider>
   );

@@ -40,6 +40,7 @@ export default function ExamPages() {
 interface ExamDetailData extends Exam {
   papers: Paper[];
   participants: number;
+  groups?: { id: string; name: string; count: number }[];
 }
 function ExamList() {
   const [cursor, setCursor] = useState('');
@@ -88,7 +89,6 @@ function ExamList() {
 }
 function CreateExam() {
   const subjects = useChoices<Catalog>('/catalog?kind=subject');
-  const series = useChoices<Catalog>('/catalog?kind=series');
   const action = useAction();
   const navigate = useNavigate();
   const { t } = useLocale();
@@ -117,7 +117,6 @@ function CreateExam() {
                 body: {
                   name: f.get('name'),
                   exam_date: f.get('date'),
-                  series_id: f.get('series') || null,
                   papers: parsed,
                 },
               },
@@ -142,16 +141,6 @@ function CreateExam() {
             <Field label="Date">
               <input name="date" type="date" required />
             </Field>
-            <Field label="Series">
-              <select name="series">
-                <option value="">{t('None')}</option>
-                {series.data?.items.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
           </div>
         </section>
         <section className="panel">
@@ -169,7 +158,6 @@ function CreateExam() {
               {t('Add subject')}
             </Button>
           </div>
-          <MoreChoices query={series} />
           <Alert error={subjects.error} />
           <MoreChoices query={subjects} />
           {papers.map((paper, i) => (
@@ -249,15 +237,20 @@ function ExamDetail() {
   const exam = useData<ExamDetailData>(`/exams/${id}`);
   const groups = useChoices<Catalog>('/catalog?kind=group');
   const action = useAction();
+  const removeAction = useAction();
   const { permissions } = useCenter();
   const { t } = useLocale();
   const [editing, setEditing] = useState(false);
+  const [removeGroup, setRemoveGroup] = useState<{
+    id: string;
+    name: string;
+    count: number;
+  } | null>(null);
   const [paperEdit, setPaperEdit] = useState<Paper | 'new' | null>(null);
   const subjects = useChoices<Catalog>(
     '/catalog?kind=subject',
     permissions.includes('academic.read'),
   );
-  const series = useChoices<Catalog>('/catalog?kind=series', permissions.includes('academic.read'));
   return (
     <Page
       eyebrow="Exams"
@@ -295,14 +288,18 @@ function ExamDetail() {
                 <strong>{exam.data.papers.length}</strong> {t('subjects')}
               </span>
             </div>
-            {permissions.includes('exams.update') && (
-              <section className="panel">
-                <h2>{t('Add participants')}</h2>
-                <p className="muted">
-                  {t(
-                    'Add a batch once. Later group changes will not alter this exam’s participants.',
-                  )}
-                </p>
+            <section className="panel">
+              <div className="section-header">
+                <div>
+                  <h2>{t('Participants')}</h2>
+                  <p className="muted">
+                    {t(
+                      'Add a batch once. Later group changes will not alter this exam’s participants.',
+                    )}
+                  </p>
+                </div>
+              </div>
+              {permissions.includes('exams.update') && (
                 <form
                   className="inline-form add-participants-form"
                   onSubmit={(e) => {
@@ -324,20 +321,56 @@ function ExamDetail() {
                       ))}
                     </select>
                   </Field>
-                  <Button type="submit" busy={action.isPending}>
-                    <Users size={16} />
-                    {t('Add participants')}
-                  </Button>
+                  <div className="actions">
+                    <Button type="submit" busy={action.isPending}>
+                      <Users size={16} />
+                      {t('Add participants')}
+                    </Button>
+                  </div>
                 </form>
-                <MoreChoices query={groups} />
-                <Alert error={action.error} />
-                {action.isSuccess && (
-                  <Alert success>
-                    {t('Participants added. Existing participants were not duplicated.')}
-                  </Alert>
-                )}
-              </section>
-            )}
+              )}
+              <MoreChoices query={groups} />
+              <Alert error={action.error} />
+              {action.isSuccess && (
+                <Alert success>
+                  {t('Participants added. Existing participants were not duplicated.')}
+                </Alert>
+              )}
+              {exam.data.groups && exam.data.groups.length > 0 && (
+                <div className="participating-groups">
+                  <h3>
+                    {t('Participating groups')} ({exam.data.groups.length})
+                  </h3>
+                  <div className="group-chips-list">
+                    {exam.data.groups.map((g) => (
+                      <div className="participating-group-row" key={g.id}>
+                        <div className="group-info">
+                          <span className="group-icon">
+                            <Users size={16} />
+                          </span>
+                          <div>
+                            <strong>{g.name}</strong>
+                            <small className="muted">
+                              {g.count} {t('students in exam')}
+                            </small>
+                          </div>
+                        </div>
+                        {permissions.includes('exams.update') && (
+                          <Button
+                            variant="danger"
+                            onClick={() => setRemoveGroup(g)}
+                            title={t('Remove group from exam')}
+                          >
+                            <Trash2 size={14} />
+                            {t('Remove')}
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
             <div className="section-header">
               <div>
                 <h2>{t('Subjects')}</h2>
@@ -451,7 +484,6 @@ function ExamDetail() {
                       body: {
                         name: f.get('name'),
                         exam_date: f.get('date'),
-                        series_id: f.get('series') || null,
                         version: exam.data.version,
                         active: f.get('active') === 'on',
                       },
@@ -466,26 +498,61 @@ function ExamDetail() {
                 <Field label="Date">
                   <input type="date" name="date" defaultValue={exam.data.exam_date} required />
                 </Field>
-                <Field label="Exam series">
-                  <select name="series" defaultValue={exam.data.series_id ?? ''}>
-                    <option value="">{t('None')}</option>
-                    {series.data?.items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <MoreChoices query={series} />
                 <label className="check">
                   <input type="checkbox" name="active" defaultChecked={Boolean(exam.data.active)} />
                   {t('Active')}
                 </label>
                 <Alert error={action.error} />
-                <Button type="submit" busy={action.isPending}>
-                  {t('Save')}
-                </Button>
+                <div className="actions">
+                  <Button type="button" variant="secondary" onClick={() => setEditing(false)}>
+                    {t('Cancel')}
+                  </Button>
+                  <Button type="submit" busy={action.isPending}>
+                    {t('Save')}
+                  </Button>
+                </div>
               </form>
+            </Dialog>
+            <Dialog
+              title="Remove group"
+              open={removeGroup !== null}
+              onClose={() => setRemoveGroup(null)}
+            >
+              <p>
+                {t('Remove')} <strong>{removeGroup?.name}</strong> {t('from this exam?')}
+              </p>
+              <p className="muted">
+                {t(
+                  'Students in this group will be removed from exam participants. Any recorded marks must be cleared first.',
+                )}
+              </p>
+              <Alert error={removeAction.error} />
+              <div className="actions">
+                <Button variant="secondary" onClick={() => setRemoveGroup(null)}>
+                  {t('Cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  busy={removeAction.isPending}
+                  onClick={() => {
+                    if (!removeGroup) return;
+                    removeAction.mutate(
+                      {
+                        path: `/exams/${id}/participants/${removeGroup.id}`,
+                        method: 'DELETE',
+                      },
+                      {
+                        onSuccess: () => {
+                          setRemoveGroup(null);
+                        },
+                      },
+                    );
+                  }}
+                >
+                  <Trash2 size={16} />
+                  {t('Remove group')}
+                </Button>
+              </div>
             </Dialog>
           </>
         )}
@@ -563,9 +630,11 @@ function PaperEditor({
         />
       </Field>
       <Alert error={error ?? action.error} />
-      <Button type="submit" busy={action.isPending}>
-        {t('Save')}
-      </Button>
+      <div className="actions">
+        <Button type="submit" busy={action.isPending}>
+          {t('Save')}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -652,7 +721,7 @@ function MarksForm({
             <div className="marks-list">
               {data.items.map((row, index) => {
                 const current = changes[row.student_id] ?? {
-                  status: row.status,
+                  status: row.status === 'pending' ? 'scored' : row.status,
                   value: row.score === null ? '' : formatScore(row.score),
                 };
                 return (
@@ -674,7 +743,14 @@ function MarksForm({
                       disabled={!permissions.includes('results.update')}
                       onChange={(e) => {
                         const status = e.target.value as ResultStatus;
-                        setChanges((all) => ({ ...all, [row.student_id]: { ...current, status } }));
+                        setChanges((all) => ({
+                          ...all,
+                          [row.student_id]: {
+                            ...current,
+                            status,
+                            value: status === 'scored' ? current.value : '',
+                          },
+                        }));
                       }}
                     >
                       {(['scored', 'absent', 'pending', 'exempt'] as const).map((status) => (

@@ -14,7 +14,7 @@ import {
   type User,
   type Variable,
 } from '@coaching/domain';
-import { audit, now, one, rows, statement, uid } from './db';
+import { now, one, rows, statement, uid } from './db';
 import { AppError, assert } from './errors';
 import { accessFor, digest, requirePermission, type AppEnv, type Bindings } from './security';
 import { balance, configFor, delivery, submit } from './provider';
@@ -154,7 +154,6 @@ campaigns.post('/', async (c) => {
       id,
       now(),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'campaign.prepare', id),
   ]);
   c.executionCtx.waitUntil(dispatch(c.env));
   return c.json({ id }, 201);
@@ -292,7 +291,6 @@ campaigns.post('/:id/approve', async (c) => {
       c.req.param('id'),
       input.scheduled_at ?? now(),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'campaign.approve', c.req.param('id')),
   ]);
   c.executionCtx.waitUntil(dispatch(c.env));
   return c.json({ ok: true });
@@ -318,7 +316,6 @@ campaigns.post('/:id/cancel', async (c) => {
       a.center.id,
       c.req.param('id'),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'campaign.cancel', c.req.param('id')),
   ]);
   return c.json({ ok: true });
 });
@@ -452,7 +449,6 @@ campaigns.post('/:id/retry', async (c) => {
         m.source_signature,
       ),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'campaign.resend', original.id),
   ]);
   return c.json({ id }, 201);
 });
@@ -523,7 +519,6 @@ campaigns.post('/:id/rebuild', async (c) => {
       id,
       now(),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'campaign.refresh_unsent', original.id),
   ]);
   c.executionCtx.waitUntil(dispatch(c.env));
   return c.json({ id }, 201);
@@ -646,20 +641,26 @@ async function prepare(env: Bindings, campaign: StoredCampaign, input: CampaignI
       student_name: student.name,
       institute_name: center.name,
     };
-    if (first)
+    if (first) {
+      const distinctExams = new Set(scores.map((r) => r.exam_name));
+      const multipleExams = distinctExams.size > 1;
       Object.assign(values, {
-        exam_name: [...new Set(scores.map((r) => r.exam_name))].join(', '),
+        exam_name: [...distinctExams].join(', '),
         subject_name: first.subject_name,
         marks: first.score === null ? first.status : formatScore(first.score),
         full_marks: formatScore(first.maximum),
         status: first.status,
         results_summary: scores
-          .map(
-            (r) =>
-              `${r.exam_name} · ${r.subject_name}: ${r.score === null ? r.status : `${formatScore(r.score)}/${formatScore(r.maximum)}`}`,
-          )
+          .map((r) => {
+            const score =
+              r.score === null ? r.status : `${formatScore(r.score)}/${formatScore(r.maximum)}`;
+            return multipleExams
+              ? `${r.exam_name} · ${r.subject_name}: ${score}`
+              : `${r.subject_name}: ${score}`;
+          })
           .join('\n'),
       });
+    }
     let body: string;
     try {
       body = renderTemplate(input.body, input.scope, values);

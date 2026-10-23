@@ -40,7 +40,9 @@ async function call(path: string, method = 'GET', body?: unknown, session = cook
       method,
       headers: {
         ...(session ? { Cookie: session } : {}),
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(['GET', 'HEAD'].includes(method) && body === undefined
+          ? {}
+          : { 'Content-Type': 'application/json' }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }),
@@ -302,7 +304,6 @@ describe('academic records and sending', () => {
     const created = await call(`/c/${centerId}/exams`, 'POST', {
       name: 'October test',
       exam_date: '2026-10-22',
-      series_id: null,
       papers: [{ subject_id: subject, maximum: 7500, pass_mark: null }],
     });
     expect(created.status).toBe(201);
@@ -313,6 +314,11 @@ describe('academic records and sending', () => {
   });
   it('stores zero, rejects excessive marks, and detects stale edits atomically', async () => {
     const path = `/c/${centerId}/exams/${exam}/papers/${paper}/marks`;
+    const initialMarks = await call(path);
+    expect(initialMarks.status).toBe(200);
+    expect(
+      (initialMarks.body['items'] as { student_id: string; status: string }[])[0]?.status,
+    ).toBe('scored');
     expect(
       (await call(path, 'PUT', [{ student_id: student, status: 'scored', score: 0, version: 0 }]))
         .status,
@@ -436,6 +442,49 @@ describe('academic records and sending', () => {
       (await call(`/c/${centerId}/campaigns/${campaign}/approve`, 'POST', { scheduled_at: null }))
         .status,
     ).toBe(409);
+  });
+  it('manages group participants in exams and allows removing mistakenly added groups', async () => {
+    const groupRes = await call(`/c/${centerId}/catalog`, 'POST', {
+      kind: 'group',
+      name: 'Mistaken batch',
+    });
+    const testGroup = z.string().parse(groupRes.body['id']);
+    const studentRes = await call(`/c/${centerId}/students`, 'POST', {
+      name: 'Batch student',
+      identifier: '02',
+      group_ids: [testGroup],
+      contacts: [
+        { phone: '01799998888', label: 'Guardian', audience: 'guardian', permitted: true },
+      ],
+    });
+    expect(studentRes.status).toBe(200);
+
+    // Add group to exam
+    const addRes = await call(`/c/${centerId}/exams/${exam}/participants`, 'POST', {
+      group_id: testGroup,
+    });
+    expect(addRes.status).toBe(200);
+
+    // Verify group appears in exam details
+    const details = await call(`/c/${centerId}/exams/${exam}`);
+    const groups = z
+      .array(z.object({ id: z.string(), name: z.string(), count: z.number() }))
+      .parse(details.body['groups']);
+    expect(groups.some((g) => g.id === testGroup)).toBe(true);
+
+    // Remove group from exam
+    const deleteRes = await call(
+      `/c/${centerId}/exams/${exam}/participants/${testGroup}`,
+      'DELETE',
+    );
+    expect(deleteRes.status).toBe(200);
+
+    // Verify group is no longer in exam details
+    const afterDelete = await call(`/c/${centerId}/exams/${exam}`);
+    const groupsAfter = z
+      .array(z.object({ id: z.string(), name: z.string(), count: z.number() }))
+      .parse(afterDelete.body['groups']);
+    expect(groupsAfter.some((g) => g.id === testGroup)).toBe(false);
   });
 });
 
@@ -1005,15 +1054,9 @@ describe('campaign edge states', () => {
 });
 describe('preserving academic relationships', () => {
   it('keeps existing archived links and membership dates without allowing new archived assignments', async () => {
-    const parent = await call(`/c/${centerId}/catalog`, 'POST', {
-      kind: 'class',
-      name: 'Previous class',
-    });
-    const classId = z.string().parse(parent.body['id']);
     const group = await call(`/c/${centerId}/catalog`, 'POST', {
       kind: 'group',
       name: 'Previous batch',
-      class_id: classId,
     });
     const groupId = z.string().parse(group.body['id']);
     const input = {
@@ -1032,18 +1075,8 @@ describe('preserving academic relationships', () => {
     ).run();
     expect(
       (
-        await call(`/c/${centerId}/catalog/${classId}`, 'PATCH', {
-          name: 'Previous class',
-          active: 0,
-          version: 1,
-        })
-      ).status,
-    ).toBe(200);
-    expect(
-      (
         await call(`/c/${centerId}/catalog/${groupId}`, 'PATCH', {
           name: 'Renamed previous batch',
-          class_id: classId,
           active: 0,
           version: 1,
         })
@@ -1488,7 +1521,7 @@ describe('history retention', () => {
 });
 
 describe('unchanged provider settings', () => {
-  it('does not create revisions, pause campaigns, or add audit entries for identical concurrent saves', async () => {
+  it('does not create revisions or pause campaigns for identical concurrent saves', async () => {
     const center = uid();
     await env.DB.batch([
       statement(
@@ -1537,13 +1570,6 @@ describe('unchanged provider settings', () => {
     expect(
       await one(env.DB, 'SELECT COUNT(*) AS count FROM provider_configs WHERE center_id=?', center),
     ).toEqual({ count: 1 });
-    expect(
-      await one(
-        env.DB,
-        "SELECT COUNT(*) AS count FROM audit WHERE center_id=? AND action='provider.replace'",
-        center,
-      ),
-    ).toEqual({ count: 1 });
     expect(await one(env.DB, 'SELECT revision FROM centers WHERE id=?', center)).toEqual(revision);
     expect(await one(env.DB, 'SELECT state FROM campaigns WHERE id=?', id)).toEqual({
       state: 'ready_for_review',
@@ -1561,58 +1587,6 @@ describe('unchanged provider settings', () => {
 });
 
 describe('bounded database access', () => {
-  it('removes audit entries older than seven days in indexed batches while dispatch is disabled', async () => {
-    const timestamp = Date.now();
-    const cutoff = timestamp - 7 * 86400000;
-    const target = uid();
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(timestamp);
-    try {
-      await statement(
-        env.DB,
-        `WITH RECURSIVE n(x) AS(SELECT 0 UNION ALL SELECT x+1 FROM n WHERE x<1000) INSERT INTO audit SELECT ?||x,CASE x%3 WHEN 0 THEN NULL WHEN 1 THEN ? ELSE ? END,?,'account.assisted_recovery:test',?,? FROM n`,
-        target,
-        centerId,
-        otherCenter,
-        userId,
-        target,
-        cutoff - 1,
-      ).run();
-      await env.DB.batch(
-        [cutoff, cutoff + 1, timestamp].map((createdAt) =>
-          statement(
-            env.DB,
-            'INSERT INTO audit VALUES(?,?,?,?,?,?)',
-            uid(),
-            centerId,
-            userId,
-            'provider.replace',
-            target,
-            createdAt,
-          ),
-        ),
-      );
-      const plan = await rows<{ detail: string }>(
-        env.DB,
-        'EXPLAIN QUERY PLAN SELECT id FROM audit WHERE created_at<? ORDER BY created_at LIMIT 1000',
-        cutoff,
-      );
-      expect(plan.some((row) => row.detail.includes('audit_created_at'))).toBe(true);
-      await scheduled(bindings);
-      expect(
-        await one(env.DB, 'SELECT COUNT(*) AS count FROM audit WHERE target=?', target),
-      ).toEqual({ count: 4 });
-      await scheduled(bindings);
-      expect(
-        await one(env.DB, 'SELECT COUNT(*) AS count FROM audit WHERE target=?', target),
-      ).toEqual({ count: 3 });
-      await scheduled(bindings);
-      expect(
-        await one(env.DB, 'SELECT COUNT(*) AS count FROM audit WHERE target=?', target),
-      ).toEqual({ count: 3 });
-    } finally {
-      clock.mockRestore();
-    }
-  });
   it('uses the student prefix index instead of scanning unrelated records', async () => {
     await statement(
       env.DB,

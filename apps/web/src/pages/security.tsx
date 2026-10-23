@@ -55,9 +55,11 @@ export default function Security() {
               />
             </Field>
             <Alert error={action.error} />
-            <Button type="submit" busy={action.isPending}>
-              {t('Save changes')}
-            </Button>
+            <div className="actions">
+              <Button type="submit" busy={action.isPending}>
+                {t('Save changes')}
+              </Button>
+            </div>
           </form>
         </section>
       )}

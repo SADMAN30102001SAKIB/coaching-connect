@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { localeSchema, nameSchema, phoneSchema } from '@coaching/domain';
 import { auth, invite } from './auth';
 import { campaigns, dispatch, processJob, scheduled } from './campaigns';
-import { audit, now, one, rows, statement, uid } from './db';
+import { now, one, rows, statement, uid } from './db';
 import { AppError, assert } from './errors';
 import { exams } from './exams';
 import { balance, configFor, senderSchema } from './provider';
@@ -137,31 +137,25 @@ app.post('/api/platform/centers', async (c) => {
     owner = { id };
   }
   const id = uid();
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'INSERT INTO centers(id,name,owner_id,timezone) VALUES(?,?,?,?)',
-      id,
-      input.name,
-      owner.id,
-      input.timezone,
-    ),
-    audit(c.env.DB, id, c.get('user').id, 'center.create', id),
-  ]);
+  await statement(
+    c.env.DB,
+    'INSERT INTO centers(id,name,owner_id,timezone) VALUES(?,?,?,?)',
+    id,
+    input.name,
+    owner.id,
+    input.timezone,
+  ).run();
   const token = await invite(c.env.DB, id, c.get('user').id, input.phone, input.admin_name, []);
   return c.json({ id, token }, 201);
 });
 app.patch('/api/platform/centers/:id', async (c) => {
   const input = z.object({ active: z.boolean() }).parse(await c.req.json());
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'UPDATE centers SET active=? WHERE id=?',
-      Number(input.active),
-      c.req.param('id'),
-    ),
-    audit(c.env.DB, c.req.param('id'), c.get('user').id, 'center.status', c.req.param('id')),
-  ]);
+  await statement(
+    c.env.DB,
+    'UPDATE centers SET active=? WHERE id=?',
+    Number(input.active),
+    c.req.param('id'),
+  ).run();
   return c.json({ ok: true });
 });
 app.post('/api/platform/recovery', async (c) => {
@@ -185,16 +179,13 @@ app.post('/api/platform/recovery', async (c) => {
     422,
   );
   const code = crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'INSERT INTO recovery_codes(hash,user_id,expires_at) VALUES(?,?,?)',
-      await digest(code),
-      user.id,
-      now() + 3600000,
-    ),
-    audit(c.env.DB, null, c.get('user').id, `account.assisted_recovery:${input.evidence}`, user.id),
-  ]);
+  await statement(
+    c.env.DB,
+    'INSERT INTO recovery_codes(hash,user_id,expires_at) VALUES(?,?,?)',
+    await digest(code),
+    user.id,
+    now() + 3600000,
+  ).run();
   return c.json({ recovery_code: code });
 });
 const centerAccess: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -240,18 +231,15 @@ centerApi.patch('/settings', async (c) => {
   } catch {
     throw new AppError('TIMEZONE_INVALID', 'Choose a valid timezone.', 422);
   }
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'UPDATE centers SET name=?,timezone=?,locale=?,late_minutes=?,revision=revision+1 WHERE id=?',
-      input.name,
-      input.timezone,
-      input.locale,
-      input.late_minutes,
-      a.center.id,
-    ),
-    audit(c.env.DB, a.center.id, a.user.id, 'settings.update', a.center.id),
-  ]);
+  await statement(
+    c.env.DB,
+    'UPDATE centers SET name=?,timezone=?,locale=?,late_minutes=?,revision=revision+1 WHERE id=?',
+    input.name,
+    input.timezone,
+    input.locale,
+    input.late_minutes,
+    a.center.id,
+  ).run();
   return c.json({ ok: true });
 });
 centerApi.get('/provider', async (c) => {
@@ -314,16 +302,6 @@ centerApi.put('/provider', async (c) => {
       c.env.DB,
       "UPDATE campaigns SET state='needs_review',reason='SMS credentials changed. Prepare a new preview.' WHERE center_id=? AND state IN ('queued','scheduled','paused','ready_for_review') AND EXISTS(SELECT 1 FROM provider_configs WHERE id=?)",
       a.center.id,
-      configId,
-    ),
-    statement(
-      c.env.DB,
-      "INSERT INTO audit SELECT ?,?,?,'provider.replace',?,? WHERE EXISTS(SELECT 1 FROM provider_configs WHERE id=?)",
-      uid(),
-      a.center.id,
-      a.user.id,
-      a.center.id,
-      now(),
       configId,
     ),
   ]);

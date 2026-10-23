@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "dead-code": "fallow dead-code",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm dead-code && pnpm test && pnpm build",
     "db:local": "wrangler d1 migrations apply coaching-connect --local",
     "db:test": "wrangler d1 migrations apply coaching-connect --local --persist-to .wrangler/browser-state",
     "db:remote": "wrangler d1 migrations apply coaching-connect --remote"
@@ -45,6 +46,7 @@
     "eslint": "9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "fallow": "3.34.1",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.0",

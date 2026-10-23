@@ -123,7 +123,6 @@ Replacing provider credentials or transferring ownership requires a recent login
 
 The existing every-minute task cleans up temporary data even when SMS dispatch is disabled:
 
-- **Audit history:** entries older than seven days, including recovery/security audit notes.
 - **Finished SMS history:** completed/cancelled campaigns older than 30 days, together with their messages, attempts, exclusions, and approval records. The clock starts when a campaign finishes and restarts when a message's delivery state changes. Pending, uncertain, unresolved-delivery, or job-backed campaigns are kept. A campaign referenced by a resend/rebuilt campaign is kept until that dependent history is removed.
 - **Temporary records:** expired sessions, invitations, rate-limit entries, and assisted-recovery codes. Valid personal recovery codes stay. Used-token records are removed only when no matching valid invitation or recovery code remains.
 - **Old SMS settings:** inactive balance caches are removed after refreshes finish. Inactive credentials are deleted only when no campaign or balance cache references them. Active credentials stay. Saving identical settings does not create a new version or pause sends.

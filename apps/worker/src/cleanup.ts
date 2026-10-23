@@ -5,11 +5,6 @@ export async function cleanup(db: D1Database): Promise<void> {
   await db.batch([
     statement(
       db,
-      'DELETE FROM audit WHERE id IN (SELECT id FROM audit WHERE created_at<? ORDER BY created_at LIMIT 1000)',
-      timestamp - 7 * 86400000,
-    ),
-    statement(
-      db,
       'DELETE FROM sessions WHERE token IN (SELECT token FROM sessions WHERE expires_at<? LIMIT 100)',
       timestamp,
     ),

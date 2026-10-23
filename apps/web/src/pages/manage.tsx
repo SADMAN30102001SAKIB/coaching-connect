@@ -17,18 +17,7 @@ import {
 import { formText, useAction, useCenter, useData, useChoices } from '../api';
 import { useLocale } from '../i18n';
 import { BalanceCard } from '../components/BalanceCard';
-import {
-  Alert,
-  Button,
-  Dialog,
-  Empty,
-  Field,
-  NextPage,
-  Page,
-  State,
-  dateTime,
-  MoreChoices,
-} from '../ui';
+import { Alert, Button, Dialog, Empty, Field, NextPage, Page, State, MoreChoices } from '../ui';
 
 export default function ManagePages({
   section,
@@ -51,7 +40,7 @@ export default function ManagePages({
 function CatalogPage({ groups = false }: { groups?: boolean }) {
   const { permissions } = useCenter();
   const { t } = useLocale();
-  const [kind, setKind] = useState<Catalog['kind']>(groups ? 'group' : 'subject');
+  const kind: Catalog['kind'] = groups ? 'group' : 'subject';
   const [cursor, setCursor] = useState('');
   const [edit, setEdit] = useState<Catalog | 'new' | null>(null);
   const [selected, setSelected] = useState<Catalog | null>(null);
@@ -61,48 +50,24 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
   const members = useChoices<Student>(`/groups/${selected?.id ?? ''}/members`, Boolean(selected));
   const action = useAction();
   const prefix = groups ? 'groups' : 'academic';
-  const classes = useChoices<Catalog>(
-    '/catalog?kind=class',
-    groups && permissions.includes('academic.read'),
-  );
-  const sessions = useChoices<Catalog>(
-    '/catalog?kind=session',
-    groups && permissions.includes('academic.read'),
-  );
   return (
     <Page
       eyebrow="MAKE IT YOURS"
-      title={groups ? 'Groups' : 'Academic setup'}
+      title={groups ? 'Groups' : 'Subjects'}
       description={
         groups
           ? 'The right students, together. Reuse a batch across exams.'
-          : 'Your classes, subjects, sessions and exam series. No fixed curriculum.'
+          : 'Add and manage subjects for your coaching center.'
       }
       action={
         permissions.includes(`${prefix}.create`) && (
           <Button onClick={() => setEdit('new')}>
             <Plus size={18} />
-            {t(groups ? 'Add group' : 'Add')}
+            {t(groups ? 'Add group' : 'Add subject')}
           </Button>
         )
       }
     >
-      {!groups && (
-        <div className="tabs" role="group" aria-label="Academic category">
-          {(['subject', 'class', 'session', 'series'] as const).map((item) => (
-            <button
-              key={item}
-              className={kind === item ? 'active' : ''}
-              onClick={() => {
-                setKind(item);
-                setCursor('');
-              }}
-            >
-              {t(item.charAt(0).toUpperCase() + item.slice(1))}
-            </button>
-          ))}
-        </div>
-      )}
       <State pending={list.isPending} error={list.error}>
         {list.data?.items.length ? (
           <section className="panel flush">
@@ -130,12 +95,27 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
             ))}
           </section>
         ) : (
-          <Empty />
+          <Empty
+            title={groups ? 'No groups yet' : 'No subjects yet'}
+            description={
+              groups
+                ? 'Create your first group to organize students into batches.'
+                : 'Add your first subject to start creating exams.'
+            }
+          />
         )}
         <NextPage next={list.data?.next} onNext={setCursor} />
       </State>
       <Dialog
-        title={edit === 'new' ? 'Add' : 'Edit'}
+        title={
+          edit === 'new'
+            ? groups
+              ? 'Add group'
+              : 'Add subject'
+            : groups
+              ? 'Edit group'
+              : 'Edit subject'
+        }
         open={edit !== null}
         onClose={() => setEdit(null)}
       >
@@ -150,8 +130,6 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
                 body: {
                   name: f.get('name'),
                   kind,
-                  class_id: groups ? f.get('class') || null : null,
-                  session_id: groups ? f.get('session') || null : null,
                   ...(edit && edit !== 'new'
                     ? { version: edit.version, active: f.get('active') === 'on' ? 1 : 0 }
                     : {}),
@@ -170,50 +148,6 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
               maxLength={160}
             />
           </Field>
-          {groups && (
-            <>
-              <Field label="Class">
-                <select
-                  name="class"
-                  defaultValue={edit && edit !== 'new' ? (edit.class_id ?? '') : ''}
-                >
-                  {edit &&
-                    edit !== 'new' &&
-                    edit.class_id &&
-                    !classes.data?.items.some((item) => item.id === edit.class_id) && (
-                      <option value={edit.class_id}>{t('Current class')}</option>
-                    )}
-                  <option value="">{t('None')}</option>
-                  {classes.data?.items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <MoreChoices query={classes} />
-              <Field label="Session">
-                <select
-                  name="session"
-                  defaultValue={edit && edit !== 'new' ? (edit.session_id ?? '') : ''}
-                >
-                  {edit &&
-                    edit !== 'new' &&
-                    edit.session_id &&
-                    !sessions.data?.items.some((item) => item.id === edit.session_id) && (
-                      <option value={edit.session_id}>{t('Current session')}</option>
-                    )}
-                  <option value="">{t('None')}</option>
-                  {sessions.data?.items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <MoreChoices query={sessions} />
-            </>
-          )}
           {edit && edit !== 'new' && (
             <label className="check">
               <input type="checkbox" name="active" defaultChecked />
@@ -419,9 +353,11 @@ function TemplateForm({ initial, onDone }: { initial: Template | undefined; onDo
         </label>
       )}
       <Alert error={action.error} />
-      <Button type="submit" busy={action.isPending}>
-        {t('Save')}
-      </Button>
+      <div className="actions">
+        <Button type="submit" busy={action.isPending}>
+          {t('Save')}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -592,9 +528,14 @@ function Staff() {
               </label>
             )}
             <Alert error={action.error ?? update.error} />
-            <Button type="submit" busy={action.isPending || update.isPending}>
-              {t(member === 'new' ? 'Invite staff' : 'Save')}
-            </Button>
+            <div className="actions">
+              <Button type="button" variant="secondary" onClick={() => setMember(null)}>
+                {t('Cancel')}
+              </Button>
+              <Button type="submit" busy={action.isPending || update.isPending}>
+                {t(member === 'new' ? 'Invite staff' : 'Save')}
+              </Button>
+            </div>
           </form>
         )}
       </Dialog>
@@ -648,9 +589,14 @@ function Staff() {
             </select>
           </Field>
           <Alert error={update.error} />
-          <Button type="submit" variant="danger" busy={update.isPending}>
-            {t('Transfer ownership')}
-          </Button>
+          <div className="actions">
+            <Button type="button" variant="secondary" onClick={() => setTransfer(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button type="submit" variant="danger" busy={update.isPending}>
+              {t('Transfer ownership')}
+            </Button>
+          </div>
         </form>
       </Dialog>
     </Page>
@@ -730,9 +676,14 @@ function RoleEditor({ initial, onDone }: { initial: Role | undefined; onDone: ()
         </label>
       )}
       <Alert error={action.error} />
-      <Button type="submit" busy={action.isPending}>
-        {t('Save role')}
-      </Button>
+      <div className="actions">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          {t('Cancel')}
+        </Button>
+        <Button type="submit" busy={action.isPending}>
+          {t('Save role')}
+        </Button>
+      </div>
     </form>
   );
 }
@@ -748,30 +699,26 @@ export function Invitation({ token }: { token: string }) {
         )}
       </p>
       <input aria-label="Invitation link" readOnly value={url} />
-      <Button
-        variant="secondary"
-        onClick={() => {
-          void navigator.clipboard.writeText(url).then(() => setCopied(true));
-        }}
-      >
-        <Copy size={17} />
-        {copied ? 'Copied' : t('Copy')}
-      </Button>
+      <div className="actions">
+        <Button
+          variant="secondary"
+          onClick={() => {
+            void navigator.clipboard.writeText(url).then(() => setCopied(true));
+          }}
+        >
+          <Copy size={17} />
+          {copied ? 'Copied' : t('Copy')}
+        </Button>
+      </div>
     </>
   );
 }
 function SettingsPage() {
   const { center, admin, permissions } = useCenter();
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const provider = useData<ProviderSettings>('/provider', permissions.includes('provider.manage'));
   const action = useAction();
   const [replace, setReplace] = useState(false);
-  const [showAudit, setShowAudit] = useState(false);
-  const [auditCursor, setAuditCursor] = useState('');
-  const audit = useData<Paged<{ id: string; action: string; name: string; created_at: number }>>(
-    `/audit?cursor=${encodeURIComponent(auditCursor)}`,
-    showAudit && admin,
-  );
   const locationKey = useLocation();
   return (
     <Page eyebrow="YOUR WORKSPACE, YOUR WAY" title="Settings">
@@ -825,9 +772,11 @@ function SettingsPage() {
               </select>
             </Field>
           </div>
-          <Button type="submit" busy={action.isPending}>
-            {t('Save changes')}
-          </Button>
+          <div className="actions">
+            <Button type="submit" busy={action.isPending}>
+              {t('Save changes')}
+            </Button>
+          </div>
         </form>
       )}
       <BalanceCard />
@@ -848,9 +797,11 @@ function SettingsPage() {
                 <p>
                   {t('Sender IDs:')} {provider.data.sender_ids.join(', ')}
                 </p>
-                <Button variant="secondary" onClick={() => setReplace(true)}>
-                  {t('Replace account settings')}
-                </Button>
+                <div className="actions">
+                  <Button variant="secondary" onClick={() => setReplace(true)}>
+                    {t('Replace account settings')}
+                  </Button>
+                </div>
               </>
             ) : (
               <form
@@ -921,34 +872,19 @@ function SettingsPage() {
                     'Replacing credentials pauses affected unsent campaigns. Old credentials are retained only to check previously submitted messages. API keys are stored in the database as requested; database exports must be protected.',
                   )}
                 </p>
-                <Button type="submit" busy={action.isPending}>
-                  {t('Save SMS account')}
-                </Button>
+                <div className="actions">
+                  {provider.data?.configured && (
+                    <Button variant="secondary" type="button" onClick={() => setReplace(false)}>
+                      {t('Cancel')}
+                    </Button>
+                  )}
+                  <Button type="submit" busy={action.isPending}>
+                    {t('Save SMS account')}
+                  </Button>
+                </div>
               </form>
             )}
           </State>
-        </section>
-      )}
-      {admin && (
-        <section className="panel">
-          <Button variant="ghost" onClick={() => setShowAudit((v) => !v)}>
-            {t('Audit history')}
-          </Button>
-          {showAudit && (
-            <State pending={audit.isPending} error={audit.error}>
-              {audit.data?.items.map((event) => (
-                <div className="record-row" key={event.id}>
-                  <div className="grow">
-                    <strong>{event.action}</strong>
-                    <small>
-                      {event.name} · {dateTime(event.created_at, center.timezone, locale)}
-                    </small>
-                  </div>
-                </div>
-              ))}
-              <NextPage next={audit.data?.next} onNext={setAuditCursor} />
-            </State>
-          )}
         </section>
       )}
     </Page>

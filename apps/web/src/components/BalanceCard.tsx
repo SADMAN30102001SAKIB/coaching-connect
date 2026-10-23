@@ -14,7 +14,7 @@ export function BalanceCard() {
   const data = query.data;
   return (
     <section className="panel balance-panel">
-      <div>
+      <div className="balance-content">
         <p className="eyebrow">
           <Wallet size={15} /> {t('SMS balance')}
         </p>
@@ -35,13 +35,15 @@ export function BalanceCard() {
         <Alert error={refresh.error ?? query.error} />
       </div>
       {permissions.includes('balance.refresh') && (
-        <Button
-          variant="secondary"
-          busy={refresh.isPending}
-          onClick={() => refresh.mutate({ path: '/balance/refresh' })}
-        >
-          {t('Refresh balance')}
-        </Button>
+        <div className="balance-actions">
+          <Button
+            variant="secondary"
+            busy={refresh.isPending}
+            onClick={() => refresh.mutate({ path: '/balance/refresh' })}
+          >
+            {t('Refresh balance')}
+          </Button>
+        </div>
       )}
     </section>
   );

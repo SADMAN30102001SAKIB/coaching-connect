@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nameSchema, passwordSchema, phoneSchema, type User } from '@coaching/domain';
-import { audit, now, one, rows, statement, uid } from './db';
+import { now, one, rows, statement, uid } from './db';
 import { assert } from './errors';
 import {
   digest,
@@ -273,7 +273,6 @@ auth.post('/auth/security', async (c) => {
     statement(c.env.DB, 'DELETE FROM recovery_codes WHERE user_id=?', user.id),
     ...codes.statements,
     statement(c.env.DB, 'DELETE FROM sessions WHERE user_id=?', user.id),
-    audit(c.env.DB, null, user.id, 'account.security', user.id),
   ];
   if (input.password)
     batch.push(

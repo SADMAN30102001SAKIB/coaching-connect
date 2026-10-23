@@ -120,9 +120,11 @@ export default function Platform() {
             <input type="checkbox" name="confirmed" required />
             {t('I independently verified this person’s account ownership.')}
           </label>
-          <Button type="submit" variant="secondary" busy={action.isPending}>
-            {t('Issue one-use recovery code')}
-          </Button>
+          <div className="actions">
+            <Button type="submit" variant="secondary" busy={action.isPending}>
+              {t('Issue one-use recovery code')}
+            </Button>
+          </div>
         </form>
         {recovery && (
           <div className="notice">
@@ -165,9 +167,14 @@ export default function Platform() {
             <input name="timezone" defaultValue="Asia/Dhaka" required />
           </Field>
           <Alert error={action.error} />
-          <Button type="submit" busy={action.isPending}>
-            {t('Create center')}
-          </Button>
+          <div className="actions">
+            <Button type="button" variant="secondary" onClick={() => setCreating(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button type="submit" busy={action.isPending}>
+              {t('Create center')}
+            </Button>
+          </div>
         </form>
       </Dialog>
       <Dialog title="Invitation link" open={Boolean(token)} onClose={() => setToken('')}>

@@ -132,12 +132,35 @@ function Compose() {
         onChange={() => setDirty(true)}
         onSubmit={(e) => {
           e.preventDefault();
-          const f = new FormData(e.currentTarget);
+          const computedName = (() => {
+            if (scope === 'subject') {
+              const selectedPaper = details.data?.papers.find((p) => p.id === paper);
+              const exam = exams.data?.items.find((item) => item.id === firstExam);
+              if (selectedPaper && exam) {
+                return `${exam.name} - ${selectedPaper.name}`.slice(0, 160);
+              }
+              if (selectedPaper) return selectedPaper.name.slice(0, 160);
+              if (exam) return exam.name.slice(0, 160);
+              return 'Subject result';
+            }
+            if (scope === 'summary') {
+              const chosen =
+                exams.data?.items.filter((item) => selectedExams.includes(item.id)) ?? [];
+              if (chosen.length > 0) {
+                return chosen
+                  .map((item) => item.name)
+                  .join(', ')
+                  .slice(0, 160);
+              }
+              return 'Combined results';
+            }
+            return 'Announcement';
+          })();
           action.mutate(
             {
               path: '/campaigns',
               body: {
-                name: f.get('name'),
+                name: computedName,
                 scope,
                 body,
                 exam_ids: scope === 'announcement' ? [] : selectedExams,
@@ -164,14 +187,6 @@ function Compose() {
               <span>01</span>
               <h2>{t('Choose your update')}</h2>
             </div>
-            <Field label="Name">
-              <input
-                name="name"
-                required
-                maxLength={160}
-                placeholder="e.g. October assessment results"
-              />
-            </Field>
             <Field label="Message type">
               <select
                 value={scope}
@@ -235,7 +250,26 @@ function Compose() {
               <span>02</span>
               <h2>{t('Recipients')}</h2>
             </div>
-            <div className="form-grid">
+            <div className="recipients-section">
+              <fieldset className="field choice-fieldset">
+                <legend>{t('Send to')}</legend>
+                <div className="audience-grid">
+                  {(['guardian', 'student', 'both'] as const).map((item) => (
+                    <label className="check choice" key={item}>
+                      <input
+                        type="radio"
+                        name="audience"
+                        value={item}
+                        checked={audience === item}
+                        onChange={() => setAudience(item)}
+                      />
+                      {t(
+                        item === 'guardian' ? 'Guardian' : item === 'student' ? 'Student' : 'Both',
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <fieldset className="field choice-fieldset">
                 <legend>{t('Groups')}</legend>
                 {targetStudent ? (
@@ -269,15 +303,8 @@ function Compose() {
                   </>
                 )}
               </fieldset>
-              <Field label="Recipients">
-                <select value={audience} onChange={(e) => setAudience(e.target.value)}>
-                  <option value="guardian">{t('Guardian')}</option>
-                  <option value="student">{t('Student')}</option>
-                  <option value="both">{t('Both')}</option>
-                </select>
-              </Field>
             </div>
-            <p className="muted">
+            <p className="muted recipients-note">
               {t(
                 'Only permitted, active contacts are included. Missing or pending results are excluded. Overlapping selections are deduplicated; siblings still get separate results.',
               )}

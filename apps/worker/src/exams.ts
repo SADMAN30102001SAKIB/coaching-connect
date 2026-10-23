@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { nameSchema, resultStatus, type Exam, type Mark, type Paper } from '@coaching/domain';
-import { audit, one, rows, statement, uid } from './db';
+import { one, rows, statement, uid } from './db';
 import { assert } from './errors';
 import { requirePermission, type AppEnv } from './security';
 
@@ -19,7 +19,6 @@ const paperInput = paperMarks.safeExtend({ subject_id: z.uuid() });
 const examInput = z.object({
   name: nameSchema,
   exam_date: z.iso.date(),
-  series_id: z.uuid().nullable(),
   papers: z.array(paperInput).min(1).max(30),
 });
 exams.get('/', async (c) => {
@@ -63,27 +62,14 @@ exams.post('/', async (c) => {
       'Choose an active subject from this center.',
       422,
     );
-  if (input.series_id)
-    assert(
-      await one(
-        c.env.DB,
-        "SELECT id FROM catalog WHERE center_id=? AND id=? AND kind='series' AND active=1",
-        a.center.id,
-        input.series_id,
-      ),
-      'INVALID_SERIES',
-      'Choose a series from this center.',
-      422,
-    );
   await c.env.DB.batch([
     statement(
       c.env.DB,
-      'INSERT INTO exams(id,center_id,name,exam_date,series_id) VALUES(?,?,?,?,?)',
+      'INSERT INTO exams(id,center_id,name,exam_date) VALUES(?,?,?,?)',
       id,
       a.center.id,
       input.name,
       input.exam_date,
-      input.series_id,
     ),
     ...input.papers.map((p, position) =>
       statement(
@@ -98,7 +84,6 @@ exams.post('/', async (c) => {
         position,
       ),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'exams.create', id),
   ]);
   return c.json({ id }, 201);
 });
@@ -123,7 +108,19 @@ exams.get('/:id', async (c) => {
     a.center.id,
     item.id,
   );
-  return c.json({ ...item, papers, participants: count?.count ?? 0 });
+  const groups = await rows<{ id: string; name: string; count: number }>(
+    c.env.DB,
+    `SELECT g.id, g.name, COUNT(DISTINCT p.student_id) AS count
+     FROM participants p
+     JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.left_at IS NULL
+     JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
+     WHERE p.center_id=? AND p.exam_id=?
+     GROUP BY g.id, g.name
+     ORDER BY g.name`,
+    a.center.id,
+    item.id,
+  );
+  return c.json({ ...item, papers, participants: count?.count ?? 0, groups });
 });
 exams.patch('/:id', async (c) => {
   const input = z
@@ -132,23 +129,20 @@ exams.patch('/:id', async (c) => {
       exam_date: z.iso.date(),
       version: z.number().int(),
       active: z.boolean(),
-      series_id: z.uuid().nullable(),
     })
     .parse(await c.req.json());
   const a = requirePermission(c, `exams.${input.active ? 'update' : 'archive'}`);
   const result = await statement(
     c.env.DB,
-    'UPDATE exams SET name=?,exam_date=?,series_id=?,active=?,version=version+1 WHERE center_id=? AND id=? AND version=?',
+    'UPDATE exams SET name=?,exam_date=?,active=?,version=version+1 WHERE center_id=? AND id=? AND version=?',
     input.name,
     input.exam_date,
-    input.series_id,
     Number(input.active),
     a.center.id,
     c.req.param('id'),
     input.version,
   ).run();
   assert(result.meta.changes, 'EDIT_CONFLICT', 'The exam changed. Reload before saving.', 409);
-  await audit(c.env.DB, a.center.id, a.user.id, 'exams.update', c.req.param('id')).run();
   return c.json({ ok: true });
 });
 exams.patch('/:id/papers/:paper', async (c) => {
@@ -172,7 +166,6 @@ exams.patch('/:id/papers/:paper', async (c) => {
     'This paper changed or is unavailable. Reload before saving.',
     409,
   );
-  await audit(c.env.DB, a.center.id, a.user.id, 'exams.paper.update', c.req.param('paper')).run();
   return c.json({ ok: true });
 });
 exams.post('/:id/papers', async (c) => {
@@ -195,7 +188,6 @@ exams.post('/:id/papers', async (c) => {
     'Choose an active exam and subject. An exam can contain up to 30 subjects.',
     422,
   );
-  await audit(c.env.DB, a.center.id, a.user.id, 'exams.paper.create', id).run();
   return c.json({ id }, 201);
 });
 exams.post('/:id/participants', async (c) => {
@@ -232,8 +224,86 @@ exams.post('/:id/participants', async (c) => {
         a.center.id,
         JSON.stringify(input.student_ids),
       ).run();
-  await audit(c.env.DB, a.center.id, a.user.id, 'exams.participants', c.req.param('id')).run();
   return c.json({ added: result.meta.changes });
+});
+exams.delete('/:id/participants/:groupId', async (c) => {
+  const a = requirePermission(c, 'exams.update');
+  const examId = c.req.param('id');
+  const groupId = z.uuid().parse(c.req.param('groupId'));
+
+  const exam = await one(
+    c.env.DB,
+    'SELECT id FROM exams WHERE center_id=? AND id=? AND active=1',
+    a.center.id,
+    examId,
+  );
+  assert(exam, 'NOT_FOUND', 'Choose an active exam.', 404);
+
+  const scored = await one<{ count: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS count FROM results r
+     JOIN papers p ON p.center_id=r.center_id AND p.id=r.paper_id
+     WHERE r.center_id=? AND p.exam_id=? AND r.status='scored'
+       AND r.student_id IN (
+         SELECT gm.student_id FROM group_members gm WHERE gm.center_id=? AND gm.group_id=?
+       )`,
+    a.center.id,
+    examId,
+    a.center.id,
+    groupId,
+  );
+  assert(
+    !scored?.count,
+    'HAS_MARKS',
+    'Cannot remove group because marks have already been recorded for some students in this group.',
+    409,
+  );
+
+  await statement(
+    c.env.DB,
+    `DELETE FROM results
+     WHERE center_id=?
+       AND paper_id IN (SELECT id FROM papers WHERE center_id=? AND exam_id=?)
+       AND student_id IN (
+         SELECT gm.student_id FROM group_members gm WHERE gm.center_id=? AND gm.group_id=?
+       )
+       AND student_id NOT IN (
+         SELECT gm2.student_id FROM group_members gm2
+         JOIN participants p2 ON p2.center_id=gm2.center_id AND p2.exam_id=? AND p2.student_id=gm2.student_id
+         WHERE gm2.center_id=? AND gm2.group_id!=? AND gm2.left_at IS NULL
+       )`,
+    a.center.id,
+    a.center.id,
+    examId,
+    a.center.id,
+    groupId,
+    examId,
+    a.center.id,
+    groupId,
+  ).run();
+
+  const result = await statement(
+    c.env.DB,
+    `DELETE FROM participants
+     WHERE center_id=? AND exam_id=?
+       AND student_id IN (
+         SELECT gm.student_id FROM group_members gm WHERE gm.center_id=? AND gm.group_id=?
+       )
+       AND student_id NOT IN (
+         SELECT gm2.student_id FROM group_members gm2
+         JOIN participants p2 ON p2.center_id=gm2.center_id AND p2.exam_id=? AND p2.student_id=gm2.student_id
+         WHERE gm2.center_id=? AND gm2.group_id!=? AND gm2.left_at IS NULL
+       )`,
+    a.center.id,
+    examId,
+    a.center.id,
+    groupId,
+    examId,
+    a.center.id,
+    groupId,
+  ).run();
+
+  return c.json({ removed: result.meta.changes });
 });
 exams.get('/:id/papers/:paper/marks', async (c) => {
   const a = requirePermission(c, 'results.read');
@@ -247,7 +317,7 @@ exams.get('/:id/papers/:paper/marks', async (c) => {
   assert(paper, 'NOT_FOUND', 'This paper is unavailable.', 404);
   const items = await rows<Mark>(
     c.env.DB,
-    "SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'pending') AS status,r.score,COALESCE(r.version,0) AS version FROM participants p JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=? WHERE p.center_id=? AND p.exam_id=? AND p.student_id>? ORDER BY p.student_id LIMIT 51",
+    "SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version FROM participants p JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=? WHERE p.center_id=? AND p.exam_id=? AND p.student_id>? ORDER BY p.student_id LIMIT 51",
     paper.id,
     a.center.id,
     paper.exam_id,
@@ -311,7 +381,6 @@ exams.put('/:id/papers/:paper/marks', async (c) => {
         a.user.id,
       ),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'results.save', paper.id),
   ]);
   return c.json({ saved: input.length });
 });

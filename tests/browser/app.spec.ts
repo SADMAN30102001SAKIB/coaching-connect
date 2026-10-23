@@ -131,14 +131,11 @@ test('phone login, center onboarding and responsive academic workflow', async ({
     ).status(),
   ).toBe(200);
   await page.goto(`/messages/new?exam=${examId}`);
-  await page.getByLabel('Name', { exact: true }).fill('October family update');
   await page.getByLabel('Message', { exact: true }).fill('{{student_name}}\n{{results_summary}}');
   await checkAccessibility();
   await page.getByRole('button', { name: 'Prepare preview' }).click();
   await expect(page.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 20000 });
-  await expect(
-    page.getByText('Ayesha Rahman\nOctober assessment · Physics: 63.5/75', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('Ayesha Rahman\nPhysics: 63.5/75', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Confirm sending', exact: true }).click();
   await checkAccessibility();
   await page

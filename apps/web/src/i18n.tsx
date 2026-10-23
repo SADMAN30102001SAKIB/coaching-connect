@@ -204,6 +204,11 @@ const bn: Record<string, string> = {
   Groups: 'ব্যাচ',
   Templates: 'টেমপ্লেট',
   'Academic setup': 'শিক্ষা সংক্রান্ত সেটআপ',
+  'No subjects yet': 'এখনো কোনো বিষয় নেই',
+  'Add and manage subjects for your coaching center.':
+    'আপনার কোচিং সেন্টারের বিষয়গুলো যোগ ও পরিচালনা করুন।',
+  'Add your first subject to start creating exams.':
+    'পরীক্ষা তৈরি করতে আপনার প্রথম বিষয়টি যোগ করুন।',
   'Staff & roles': 'কর্মী ও ভূমিকা',
   Settings: 'সেটিংস',
   'Account security': 'অ্যাকাউন্ট নিরাপত্তা',
@@ -270,8 +275,17 @@ const bn: Record<string, string> = {
   'Publish Results': 'ফলাফল প্রকাশ ও পাঠান',
   'Ready to share scores with students and parents via SMS?':
     'শিক্ষার্থী ও অভিভাবকদের এসএমএস-এর মাধ্যমে নম্বর পাঠাতে প্রস্তুত?',
+  'Send to': 'কাদের পাঠাবেন',
   Participants: 'অংশগ্রহণকারী',
   'Add participants': 'অংশগ্রহণকারী যোগ করুন',
+  'Participating groups': 'অংশগ্রহণকারী ব্যাচ',
+  'students in exam': 'জন শিক্ষার্থী',
+  Remove: 'সরান',
+  'Remove group': 'ব্যাচ সরান',
+  'from this exam?': 'এই পরীক্ষা থেকে?',
+  'Remove group from exam': 'পরীক্ষা থেকে ব্যাচটি সরান',
+  'Students in this group will be removed from exam participants. Any recorded marks must be cleared first.':
+    'এই ব্যাচের শিক্ষার্থীরা পরীক্ষা থেকে বাদ পড়বে। ইতিমধ্যে নম্বর দেওয়া থাকলে আগে তা মুছতে হবে।',
   'Enter marks': 'নম্বর লিখুন',
   'Save marks': 'নম্বর সংরক্ষণ',
   Scored: 'নম্বরপ্রাপ্ত',
@@ -366,7 +380,6 @@ const bn: Record<string, string> = {
   'Select exams': 'পরীক্ষা নির্বাচন করুন',
   'No import. No repetitive typing. Just your next step.': 'বারবার একই লেখা নয়। এগিয়ে যান সহজে।',
   Profile: 'প্রোফাইল',
-  'Audit history': 'কার্যক্রমের ইতিহাস',
   'Delivery details': 'ডেলিভারির বিবরণ',
   Add: 'যোগ করুন',
   'Save changes': 'পরিবর্তন সংরক্ষণ',
@@ -374,6 +387,11 @@ const bn: Record<string, string> = {
   'Sign in to accept': 'আমন্ত্রণ গ্রহণ করতে সাইন ইন করুন',
   'Regenerate recovery codes': 'নতুন রিকভারি কোড তৈরি করুন',
   View: 'দেখুন',
+  'Are you sure you want to sign out?': 'আপনি কি নিশ্চিতভাবে সাইন আউট করতে চান?',
+  'Switch coaching center': 'কোচিং সেন্টার পরিবর্তন',
+  Switch: 'পরিবর্তন করুন',
+  'Switch coaching center to': 'কোচিং সেন্টার পরিবর্তন করে নিয়ে যাবেন',
+  Confirm: 'নিশ্চিত করুন',
 };
 const LocaleContext = createContext<{
   locale: 'en' | 'bn';

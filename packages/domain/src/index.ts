@@ -157,12 +157,10 @@ export interface Center {
 }
 export interface Catalog {
   id: string;
-  kind: 'class' | 'session' | 'subject' | 'group' | 'series';
+  kind: 'subject' | 'group';
   name: string;
   active: number;
   version: number;
-  class_id: string | null;
-  session_id: string | null;
 }
 export interface Student {
   id: string;
@@ -185,7 +183,6 @@ export interface Exam {
   exam_date: string;
   active: number;
   version: number;
-  series_id: string | null;
 }
 export interface Paper {
   version: number;
@@ -272,7 +269,7 @@ export interface Balance {
   checked_at: number | null;
 }
 export const campaignInput = z.object({
-  name: nameSchema,
+  name: nameSchema.default('Update'),
   scope: templateScope,
   body: z.string().min(1).max(4000),
   exam_ids: z.array(z.string()).max(50),

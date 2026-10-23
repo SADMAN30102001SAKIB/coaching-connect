@@ -9,7 +9,7 @@ import {
   variables,
   type Student,
 } from '@coaching/domain';
-import { audit, now, one, rows, statement, uid } from './db';
+import { now, one, rows, statement, uid } from './db';
 import { assert } from './errors';
 import { invite } from './auth';
 import {
@@ -28,9 +28,7 @@ const idList = z
   .transform((ids) => [...new Set(ids)]);
 const catalogSchema = z.object({
   name: nameSchema,
-  kind: z.enum(['class', 'session', 'subject', 'group', 'series']),
-  class_id: z.string().nullable().default(null),
-  session_id: z.string().nullable().default(null),
+  kind: z.enum(['subject', 'group']),
 });
 const templateSchema = z
   .object({
@@ -75,53 +73,13 @@ async function namedPage(c: ApiContext, sql: string, args: unknown[]) {
   const last = items.at(-1);
   return c.json({ items, next: more && last ? JSON.stringify([last.name, last.id]) : null });
 }
-async function checkCatalogLinks(
-  c: ApiContext,
-  center: string,
-  kind: string,
-  classId: string | null,
-  sessionId: string | null,
-  current?: { class_id: string | null; session_id: string | null },
-) {
-  assert(
-    kind === 'group' || (!classId && !sessionId),
-    'INVALID_REFERENCE',
-    'Only a batch can be linked to a class or session.',
-    422,
-  );
-  const ids = [classId, sessionId].filter((id) => id !== null);
-  if (!ids.length) return;
-  const matches = await rows<{ id: string; kind: string; active: number }>(
-    c.env.DB,
-    'SELECT id,kind,active FROM catalog WHERE center_id=? AND id IN (SELECT value FROM json_each(?))',
-    center,
-    JSON.stringify(ids),
-  );
-  assert(
-    (!classId ||
-      matches.some(
-        (r) => r.id === classId && r.kind === 'class' && (r.active || current?.class_id === r.id),
-      )) &&
-      (!sessionId ||
-        matches.some(
-          (r) =>
-            r.id === sessionId &&
-            r.kind === 'session' &&
-            (r.active || current?.session_id === r.id),
-        )),
-    'INVALID_REFERENCE',
-    'Choose an active class and session from this center.',
-    422,
-  );
-}
-async function changed(c: ApiContext, result: D1Result, resource: string, id: string) {
+function changed(c: ApiContext, result: D1Result, id: string) {
   assert(
     result.meta.changes,
     'EDIT_CONFLICT',
     'This record changed or is unavailable. Reload it before saving again.',
     409,
   );
-  await audit(c.env.DB, c.get('access').center.id, c.get('user').id, resource, id).run();
   return c.json({ id });
 }
 records.get('/catalog', (c) => {
@@ -135,21 +93,15 @@ records.get('/catalog', (c) => {
 records.post('/catalog', async (c) => {
   const input = catalogSchema.parse(await c.req.json());
   const a = requirePermission(c, input.kind === 'group' ? 'groups.create' : 'academic.create');
-  await checkCatalogLinks(c, a.center.id, input.kind, input.class_id, input.session_id);
   const id = uid();
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'INSERT INTO catalog(id,center_id,kind,name,class_id,session_id) VALUES(?,?,?,?,?,?)',
-      id,
-      a.center.id,
-      input.kind,
-      input.name,
-      input.class_id,
-      input.session_id,
-    ),
-    audit(c.env.DB, a.center.id, a.user.id, 'catalog.create', id),
-  ]);
+  await statement(
+    c.env.DB,
+    'INSERT INTO catalog(id,center_id,kind,name) VALUES(?,?,?,?)',
+    id,
+    a.center.id,
+    input.kind,
+    input.name,
+  ).run();
   return c.json({ id }, 201);
 });
 records.patch('/catalog/:id', async (c) => {
@@ -158,13 +110,11 @@ records.patch('/catalog/:id', async (c) => {
       name: nameSchema,
       version,
       active: z.number().int().min(0).max(1).default(1),
-      class_id: z.uuid().nullable().default(null),
-      session_id: z.uuid().nullable().default(null),
     })
     .parse(await c.req.json());
-  const item = await one<{ kind: string; class_id: string | null; session_id: string | null }>(
+  const item = await one<{ kind: string }>(
     c.env.DB,
-    'SELECT kind,class_id,session_id FROM catalog WHERE center_id=? AND id=?',
+    'SELECT kind FROM catalog WHERE center_id=? AND id=?',
     c.get('access').center.id,
     c.req.param('id'),
   );
@@ -173,21 +123,17 @@ records.patch('/catalog/:id', async (c) => {
     c,
     `${item.kind === 'group' ? 'groups' : 'academic'}.${input.active ? 'update' : 'archive'}`,
   );
-  await checkCatalogLinks(c, a.center.id, item.kind, input.class_id, input.session_id, item);
   return changed(
     c,
     await statement(
       c.env.DB,
-      'UPDATE catalog SET name=?,active=?,class_id=?,session_id=?,version=version+1 WHERE center_id=? AND id=? AND version=?',
+      'UPDATE catalog SET name=?,active=?,version=version+1 WHERE center_id=? AND id=? AND version=?',
       input.name,
       input.active,
-      input.class_id,
-      input.session_id,
       a.center.id,
       c.req.param('id'),
       input.version,
     ).run(),
-    'catalog.update',
     c.req.param('id'),
   );
 });
@@ -248,12 +194,7 @@ records.patch('/contacts/:id/suppression', async (c) => {
     c.req.param('id'),
     Number(input.expected),
   ).run();
-  return changed(
-    c,
-    result,
-    input.suppressed ? 'contact.suppress' : 'contact.unsuppress',
-    c.req.param('id'),
-  );
+  return changed(c, result, c.req.param('id'));
 });
 async function saveStudent(c: ApiContext, editing: boolean) {
   const raw: unknown = await c.req.json();
@@ -355,7 +296,6 @@ async function saveStudent(c: ApiContext, editing: boolean) {
         now(),
       ),
     );
-  batch.push(audit(c.env.DB, a.center.id, a.user.id, 'students.save', id));
   await c.env.DB.batch(batch);
   return c.json({ id });
 }
@@ -371,7 +311,6 @@ records.delete('/students/:id', async (c) => {
       a.center.id,
       c.req.param('id'),
     ).run(),
-    'students.archive',
     c.req.param('id'),
   );
 });
@@ -391,18 +330,15 @@ records.post('/templates', async (c) => {
   const a = requirePermission(c, 'templates.create');
   const input = templateSchema.parse(await c.req.json());
   const id = uid();
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'INSERT INTO templates(id,center_id,name,scope,body) VALUES(?,?,?,?,?)',
-      id,
-      a.center.id,
-      input.name,
-      input.scope,
-      input.body,
-    ),
-    audit(c.env.DB, a.center.id, a.user.id, 'templates.create', id),
-  ]);
+  await statement(
+    c.env.DB,
+    'INSERT INTO templates(id,center_id,name,scope,body) VALUES(?,?,?,?,?)',
+    id,
+    a.center.id,
+    input.name,
+    input.scope,
+    input.body,
+  ).run();
   return c.json({ id }, 201);
 });
 records.patch('/templates/:id', async (c) => {
@@ -423,7 +359,6 @@ records.patch('/templates/:id', async (c) => {
       c.req.param('id'),
       input.version,
     ).run(),
-    'templates.update',
     c.req.param('id'),
   );
 });
@@ -450,17 +385,14 @@ records.post('/roles', async (c) => {
   const a = requireAdmin(c);
   const input = roleSchema.parse(await c.req.json());
   const id = uid();
-  await c.env.DB.batch([
-    statement(
-      c.env.DB,
-      'INSERT INTO roles(id,center_id,name,permissions) VALUES(?,?,?,?)',
-      id,
-      a.center.id,
-      input.name,
-      JSON.stringify([...new Set(input.permissions)]),
-    ),
-    audit(c.env.DB, a.center.id, a.user.id, 'roles.create', id),
-  ]);
+  await statement(
+    c.env.DB,
+    'INSERT INTO roles(id,center_id,name,permissions) VALUES(?,?,?,?)',
+    id,
+    a.center.id,
+    input.name,
+    JSON.stringify([...new Set(input.permissions)]),
+  ).run();
   return c.json({ id }, 201);
 });
 records.patch('/roles/:id', async (c) => {
@@ -480,7 +412,6 @@ records.patch('/roles/:id', async (c) => {
       c.req.param('id'),
       input.version,
     ).run(),
-    'roles.update',
     c.req.param('id'),
   );
 });
@@ -525,7 +456,6 @@ records.post('/staff/invite', async (c) => {
     input.name,
     input.role_ids,
   );
-  await audit(c.env.DB, a.center.id, a.user.id, 'staff.invite', input.phone.slice(-4)).run();
   return c.json({ token }, 201);
 });
 records.put('/staff/:id', async (c) => {
@@ -572,7 +502,6 @@ records.put('/staff/:id', async (c) => {
         role,
       ),
     ),
-    audit(c.env.DB, a.center.id, a.user.id, 'staff.update', c.req.param('id')),
   ]);
   return c.json({ ok: true });
 });
@@ -589,24 +518,5 @@ records.post('/ownership', async (c) => {
     a.center.id,
     input.user_id,
   ).run();
-  return changed(c, result, 'ownership.transfer', input.user_id);
-});
-records.get('/audit', async (c) => {
-  const a = requireAdmin(c);
-  const cursor = c.req.query('cursor');
-  const [before, after] = cursor
-    ? z.tuple([z.number(), z.uuid()]).parse(JSON.parse(cursor))
-    : [now() + 1, ''];
-  const items = await rows<{ id: string; created_at: number; action: string; name: string }>(
-    c.env.DB,
-    'SELECT a.id,a.action,a.target,a.created_at,u.name FROM audit a JOIN users u ON u.id=a.user_id WHERE a.center_id=? AND (a.created_at<? OR (a.created_at=? AND a.id>?)) ORDER BY a.created_at DESC,a.id LIMIT 51',
-    a.center.id,
-    before,
-    before,
-    after,
-  );
-  const more = items.length > 50;
-  if (more) items.pop();
-  const last = items.at(-1);
-  return c.json({ items, next: more && last ? JSON.stringify([last.created_at, last.id]) : null });
+  return changed(c, result, input.user_id);
 });
