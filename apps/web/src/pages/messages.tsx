@@ -390,7 +390,7 @@ function CampaignDetail() {
   const [cursor, setCursor] = useState('');
   const campaign = useData<CampaignData>(`/campaigns/${id}`, true, (data) =>
     !data || ['preparing', 'queued', 'processing'].includes(data.state)
-      ? 4000
+      ? 1000
       : data.state === 'scheduled'
         ? 60000
         : false,
@@ -398,7 +398,9 @@ function CampaignDetail() {
   const messages = useData<Paged<Message>>(
     `/campaigns/${id}/messages?cursor=${cursor}`,
     permissions.includes('messages.read_content'),
-    campaign.data?.state === 'preparing' ? 4000 : undefined,
+    campaign.data?.state === 'preparing' || campaign.data?.state === 'processing'
+      ? 1000
+      : undefined,
   );
   const action = useAction();
   const retry = useAction();

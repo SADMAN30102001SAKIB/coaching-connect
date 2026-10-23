@@ -156,6 +156,7 @@ campaigns.post('/', async (c) => {
     ),
   ]);
   c.executionCtx.waitUntil(dispatch(c.env));
+  await processJob(c.env, id).catch(() => undefined);
   return c.json({ id }, 201);
 });
 campaigns.get('/', async (c) => {
@@ -521,6 +522,7 @@ campaigns.post('/:id/rebuild', async (c) => {
     ),
   ]);
   c.executionCtx.waitUntil(dispatch(c.env));
+  await processJob(c.env, id).catch(() => undefined);
   return c.json({ id }, 201);
 });
 
@@ -696,21 +698,35 @@ async function prepare(env: Bindings, campaign: StoredCampaign, input: CampaignI
         ),
       );
   }
-  batch.push(
-    statement(
-      env.DB,
-      "UPDATE campaigns SET cursor=?,excluded=excluded+? WHERE id=? AND state='preparing'",
-      students.at(-1)?.id,
-      excluded,
-      campaign.id,
-    ),
-    statement(
-      env.DB,
-      'UPDATE jobs SET due_at=?,published_at=NULL,attempts=0 WHERE id=?',
-      now(),
-      campaign.id,
-    ),
-  );
+  const isFinished = students.length < 20;
+  if (isFinished) {
+    batch.push(
+      statement(
+        env.DB,
+        "UPDATE campaigns SET state='ready_for_review',cursor=?,excluded=excluded+? WHERE id=? AND state='preparing'",
+        students.at(-1)?.id,
+        excluded,
+        campaign.id,
+      ),
+      statement(env.DB, 'DELETE FROM jobs WHERE id=?', campaign.id),
+    );
+  } else {
+    batch.push(
+      statement(
+        env.DB,
+        "UPDATE campaigns SET cursor=?,excluded=excluded+? WHERE id=? AND state='preparing'",
+        students.at(-1)?.id,
+        excluded,
+        campaign.id,
+      ),
+      statement(
+        env.DB,
+        'UPDATE jobs SET due_at=?,published_at=NULL,attempts=0 WHERE id=?',
+        now(),
+        campaign.id,
+      ),
+    );
+  }
   await env.DB.batch(batch);
 }
 
