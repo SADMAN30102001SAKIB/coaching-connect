@@ -55,21 +55,6 @@ interface ResultRow {
 }
 export const campaigns = new Hono<AppEnv>();
 const messageColumns = 'id,student_name,phone,body,state,provider_id,reason,segments';
-async function createJob(
-  db: D1Database,
-  center: string,
-  campaign: string,
-  due: number,
-): Promise<void> {
-  await statement(
-    db,
-    'INSERT INTO jobs(id,center_id,campaign_id,due_at) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET due_at=excluded.due_at,published_at=NULL,attempts=0,exhausted=0',
-    campaign,
-    center,
-    campaign,
-    due,
-  ).run();
-}
 campaigns.post('/', async (c) => {
   const a = requirePermission(c, 'messages.create');
   const input = campaignInput.parse(await c.req.json());
@@ -385,22 +370,33 @@ campaigns.post('/:id/resume', async (c) => {
   assert(config, 'PROVIDER_REQUIRED', 'Configure your SMS account first.', 422);
   const funds = await balance(c.env, config, true);
   assert(Number(funds.balance) > 0, 'BALANCE_LOW', 'Recharge the SMS account first.', 422);
-  const result = await statement(
-    c.env.DB,
-    "UPDATE campaigns SET state='queued',reason=NULL,scheduled_at=NULL WHERE center_id=? AND id=? AND state='paused' AND authorizer=? AND revision=? AND config_id=?",
-    a.center.id,
-    c.req.param('id'),
-    a.user.id,
-    a.center.revision,
-    config.id,
-  ).run();
+  const [, result] = await c.env.DB.batch([
+    statement(
+      c.env.DB,
+      "INSERT INTO jobs(id,center_id,campaign_id,due_at) SELECT id,center_id,id,? FROM campaigns WHERE center_id=? AND id=? AND state='paused' AND authorizer=? AND revision=? AND config_id=? ON CONFLICT(id) DO UPDATE SET due_at=excluded.due_at,published_at=NULL,attempts=0,exhausted=0",
+      now(),
+      a.center.id,
+      c.req.param('id'),
+      a.user.id,
+      a.center.revision,
+      config.id,
+    ),
+    statement(
+      c.env.DB,
+      "UPDATE campaigns SET state='queued',reason=NULL,scheduled_at=NULL WHERE center_id=? AND id=? AND state='paused' AND authorizer=? AND revision=? AND config_id=?",
+      a.center.id,
+      c.req.param('id'),
+      a.user.id,
+      a.center.revision,
+      config.id,
+    ),
+  ]);
   assert(
-    result.meta.changes,
+    result?.meta.changes,
     'RESUME_UNAVAILABLE',
     'Source data, credentials or authorization changed. Prepare a new campaign instead.',
     409,
   );
-  await createJob(c.env.DB, a.center.id, c.req.param('id'), now());
   c.executionCtx.waitUntil(dispatch(c.env));
   return c.json({ ok: true });
 });
@@ -964,7 +960,8 @@ async function sendChunk(env: Bindings, campaign: StoredCampaign) {
     batch.push(
       statement(
         env.DB,
-        "UPDATE messages SET state=?,provider_id=?,reason=?,next_check_at=?,claim=NULL WHERE center_id=? AND id=? AND claim=? AND state='submitting'",
+        "UPDATE messages SET state=CASE WHEN ?='pending' AND EXISTS(SELECT 1 FROM campaigns c WHERE c.center_id=messages.center_id AND c.id=messages.campaign_id AND c.state='cancelled') THEN 'cancelled' ELSE ? END,provider_id=?,reason=?,next_check_at=?,claim=NULL WHERE center_id=? AND id=? AND claim=? AND state='submitting'",
+        state,
         state,
         outcome.state === 'accepted' ? outcome.id : null,
         outcome.state === 'accepted' ? null : outcome.reason,
@@ -988,7 +985,7 @@ async function sendChunk(env: Bindings, campaign: StoredCampaign) {
   batch.push(
     statement(
       env.DB,
-      "UPDATE campaigns SET state=CASE WHEN state='cancelled' THEN state ELSE ? END,reason=? WHERE id=?",
+      "UPDATE campaigns SET state=CASE WHEN state='cancelled' THEN state ELSE ? END,reason=CASE WHEN state='cancelled' THEN reason ELSE ? END WHERE id=?",
       low ? 'paused' : unknown ? 'paused' : 'processing',
       low
         ? 'Insufficient SMS balance.'

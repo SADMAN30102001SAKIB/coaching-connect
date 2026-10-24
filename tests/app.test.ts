@@ -1794,6 +1794,370 @@ describe('campaign edge states', () => {
     expect(await one(env.DB, 'SELECT id FROM jobs WHERE id=?', id)).toBeNull();
   });
 });
+describe('sending recovery races', () => {
+  const sending = { ...bindings, SMS_MODE: 'live' as const };
+  async function ready(count = 6, batchSize = 2) {
+    const center = uid();
+    const config = uid();
+    const recipients = Array.from({ length: count }, (_, index) => ({
+      id: uid(),
+      contact: uid(),
+      name: `Recovery recipient ${index}`,
+      phone: `88019${String(index).padStart(8, '0')}`,
+    }));
+    const records = JSON.stringify(recipients);
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+        center,
+        'Recovery fixture',
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+      statement(
+        env.DB,
+        "INSERT INTO provider_configs(id,center_id,api_key,sender_ids,batch_size,interval_seconds,created_at) VALUES(?,?,'fixture-not-a-real-key','[\"TEST\"]',?,1,?)",
+        config,
+        center,
+        batchSize,
+        now(),
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO students(id,center_id,name) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.name') FROM json_each(?)",
+        center,
+        records,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO contacts(id,center_id,phone) SELECT json_extract(value,'$.contact'),?,json_extract(value,'$.phone') FROM json_each(?)",
+        center,
+        records,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO student_contacts SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.contact'),'guardian',1 FROM json_each(?)",
+        center,
+        records,
+      ),
+    ]);
+    const created = await call(`/c/${center}/campaigns`, 'POST', {
+      name: 'Recovery race fixture',
+      scope: 'announcement',
+      body: 'Hello {{student_name}}',
+      exam_ids: [],
+      paper_id: null,
+      group_ids: [],
+      student_ids: recipients.map((recipient) => recipient.id),
+      audience: 'guardian',
+      idempotency_key: uid(),
+    });
+    expect(created.status).toBe(201);
+    const id = z.string().parse(created.body['id']);
+    for (let step = 0; step <= Math.ceil(count / 20); step++) await processJob(bindings, id);
+    expect(
+      (await call(`/c/${center}/campaigns/${id}/approve`, 'POST', { scheduled_at: null })).status,
+    ).toBe(200);
+    return { center, id, config };
+  }
+  function receipt(phones: string[], accepted = phones.length) {
+    return new Response(
+      JSON.stringify({
+        ErrorCode: accepted < phones.length ? 1007 : 202,
+        Data: phones.map((phone, index) =>
+          index < accepted
+            ? { Number: phone, ErrorCode: 202, MessageId: `fixture-${phone}` }
+            : { Number: phone, ErrorCode: 1007 },
+        ),
+      }),
+      { headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+  function intercept(
+    handler: (phones: string[], sequence: number) => Promise<Response> = (phones) =>
+      Promise.resolve(receipt(phones)),
+  ) {
+    const requests: string[][] = [];
+    const network = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      expect(url).toBe('https://sms.ocs-api.top/api/send-bulk-sms');
+      if (typeof init?.body !== 'string') throw new Error('Expected a JSON submission body');
+      const body = z
+        .object({ MessageParameters: z.array(z.object({ Number: z.string() })) })
+        .parse(JSON.parse(init.body));
+      const phones = body.MessageParameters.map((item) => item.Number);
+      requests.push(phones);
+      return handler(phones, requests.length);
+    });
+    return { requests, network };
+  }
+  async function counts(id: string) {
+    return Object.fromEntries(
+      (
+        await rows<{ state: string; count: number }>(
+          env.DB,
+          'SELECT state,COUNT(*) AS count FROM messages WHERE campaign_id=? GROUP BY state',
+          id,
+        )
+      ).map((row) => [row.state, row.count]),
+    );
+  }
+  async function step(id: string) {
+    await statement(
+      env.DB,
+      'UPDATE jobs SET due_at=?,published_at=NULL WHERE id=?',
+      now(),
+      id,
+    ).run();
+    await processJob(sending, id);
+  }
+  async function paused(center: string, id: string) {
+    await env.DB.batch([
+      statement(env.DB, "UPDATE campaigns SET state='paused' WHERE id=?", id),
+      statement(env.DB, 'DELETE FROM jobs WHERE id=?', id),
+      statement(
+        env.DB,
+        "UPDATE balances SET balance='1000.00',checked_at=? WHERE center_id=?",
+        now(),
+        center,
+      ),
+    ]);
+  }
+  it('allows one concurrent resume and one worker claim without resetting an active lease', async () => {
+    const { center, id } = await ready();
+    await paused(center, id);
+    const resumes = await Promise.all([
+      call(`/c/${center}/campaigns/${id}/resume`, 'POST', {}),
+      call(`/c/${center}/campaigns/${id}/resume`, 'POST', {}),
+    ]);
+    expect(resumes.map((response) => response.status).sort()).toEqual([200, 409]);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const { requests, network } = intercept(async (phones) => {
+      entered();
+      await gate;
+      return receipt(phones);
+    });
+    const first = processJob(sending, id);
+    try {
+      await started;
+      const lease = await one(env.DB, 'SELECT published_at,attempts FROM jobs WHERE id=?', id);
+      expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(409);
+      expect(await one(env.DB, 'SELECT published_at,attempts FROM jobs WHERE id=?', id)).toEqual(
+        lease,
+      );
+      await processJob(sending, id);
+      expect(requests).toHaveLength(1);
+      release();
+      await first;
+      for (let turn = 0; turn < 4; turn++) await step(id);
+      expect(await counts(id)).toEqual({ accepted: 6 });
+      expect(requests.flat()).toHaveLength(6);
+      expect(new Set(requests.flat()).size).toBe(6);
+    } finally {
+      release();
+      await first;
+      network.mockRestore();
+    }
+  });
+  it.each(['accepted', 'low balance', 'network interruption'] as const)(
+    'preserves cancellation when an in-flight request finishes with %s',
+    async (outcome) => {
+      const { center, id } = await ready();
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const { requests, network } = intercept(async (phones) => {
+        entered();
+        await gate;
+        if (outcome === 'network interruption') throw new TypeError('Fixture response lost');
+        return receipt(phones, outcome === 'low balance' ? 0 : phones.length);
+      });
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const active = processJob(sending, id);
+      try {
+        await started;
+        expect((await call(`/c/${center}/campaigns/${id}/cancel`, 'POST', {})).status).toBe(200);
+        expect(await counts(id)).toEqual({ cancelled: 4, submitting: 2 });
+        release();
+        await active;
+        expect(await counts(id)).toEqual(
+          outcome === 'accepted'
+            ? { accepted: 2, cancelled: 4 }
+            : outcome === 'low balance'
+              ? { cancelled: 6 }
+              : { cancelled: 4, unknown: 2 },
+        );
+        const campaign = await call(`/c/${center}/campaigns/${id}`);
+        expect(campaign.body['state']).toBe('cancelled');
+        expect(campaign.body['reason']).toContain('Cancelled by staff');
+        await processJob(sending, id);
+        expect(requests).toHaveLength(1);
+        expect(await one(env.DB, 'SELECT id FROM jobs WHERE id=?', id)).toBeNull();
+        expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(409);
+      } finally {
+        release();
+        await active;
+        network.mockRestore();
+        log.mockRestore();
+      }
+    },
+  );
+  it('does not submit any recipients when cancellation wins before the worker claim', async () => {
+    const { center, id } = await ready();
+    const { requests, network } = intercept();
+    try {
+      await call(`/c/${center}/campaigns/${id}/cancel`, 'POST', {});
+      await Promise.all([processJob(sending, id), processJob(sending, id)]);
+      expect(requests).toHaveLength(0);
+      expect(await counts(id)).toEqual({ cancelled: 6 });
+    } finally {
+      network.mockRestore();
+    }
+  });
+  it('keeps cancellation final when it races with resumption', async () => {
+    const { center, id } = await ready();
+    await paused(center, id);
+    const { requests, network } = intercept();
+    try {
+      const [resume, cancel] = await Promise.all([
+        call(`/c/${center}/campaigns/${id}/resume`, 'POST', {}),
+        call(`/c/${center}/campaigns/${id}/cancel`, 'POST', {}),
+      ]);
+      expect([200, 409]).toContain(resume.status);
+      expect(cancel.status).toBe(200);
+      expect((await call(`/c/${center}/campaigns/${id}`)).body['state']).toBe('cancelled');
+      expect(await one(env.DB, 'SELECT id FROM jobs WHERE id=?', id)).toBeNull();
+      await processJob(sending, id);
+      expect(await counts(id)).toEqual({ cancelled: 6 });
+      expect(requests).toHaveLength(0);
+    } finally {
+      network.mockRestore();
+    }
+  });
+  it.each(['job creation', 'state transition'] as const)(
+    'rolls back resumption when %s fails and remains safely retryable',
+    async (boundary) => {
+      const { center, id } = await ready();
+      await paused(center, id);
+      await env.DB.exec(
+        boundary === 'job creation'
+          ? `CREATE TRIGGER fixture_resume_failure BEFORE INSERT ON jobs WHEN NEW.campaign_id='${id}' BEGIN SELECT RAISE(ABORT,'FIXTURE_JOB_FAILURE'); END;`
+          : `CREATE TRIGGER fixture_resume_failure BEFORE UPDATE OF state ON campaigns WHEN NEW.id='${id}' AND NEW.state='queued' BEGIN SELECT RAISE(ABORT,'FIXTURE_STATE_FAILURE'); END;`,
+      );
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(503);
+        expect((await call(`/c/${center}/campaigns/${id}`)).body['state']).toBe('paused');
+        expect(await one(env.DB, 'SELECT id FROM jobs WHERE id=?', id)).toBeNull();
+      } finally {
+        await env.DB.exec('DROP TRIGGER fixture_resume_failure');
+        log.mockRestore();
+      }
+      expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(200);
+      const { requests, network } = intercept();
+      try {
+        for (let turn = 0; turn < 4; turn++) await step(id);
+        expect(await counts(id)).toEqual({ accepted: 6 });
+        expect(requests.flat()).toHaveLength(6);
+      } finally {
+        network.mockRestore();
+      }
+    },
+  );
+  it('does not resend provider-accepted requests when saving their receipts fails before restart', async () => {
+    const { center, id } = await ready();
+    const { requests, network } = intercept();
+    try {
+      await env.DB.exec(
+        `CREATE TRIGGER fixture_receipt_failure BEFORE UPDATE OF state ON messages WHEN NEW.campaign_id='${id}' AND NEW.state='accepted' BEGIN SELECT RAISE(ABORT,'FIXTURE_RECEIPT_FAILURE'); END;`,
+      );
+      try {
+        await expect(processJob(sending, id)).rejects.toThrow('FIXTURE_RECEIPT_FAILURE');
+        expect(requests).toHaveLength(1);
+        expect(await counts(id)).toEqual({ pending: 4, submitting: 2 });
+        expect(
+          await one(env.DB, 'SELECT COUNT(*) AS count FROM attempts WHERE campaign_id=?', id),
+        ).toEqual({ count: 0 });
+        await processJob(sending, id);
+        expect(requests).toHaveLength(1);
+        await statement(
+          env.DB,
+          "UPDATE messages SET submitted_at=? WHERE campaign_id=? AND state='submitting'",
+          now() - 180000,
+          id,
+        ).run();
+        await scheduled({ ...bindings, DISPATCH_ENABLED: 'true' });
+        expect(await counts(id)).toEqual({ pending: 4, unknown: 2 });
+        expect((await call(`/c/${center}/campaigns/${id}`)).body['state']).toBe('paused');
+        expect(await one(env.DB, 'SELECT id FROM jobs WHERE id=?', id)).toBeNull();
+      } finally {
+        await env.DB.exec('DROP TRIGGER fixture_receipt_failure');
+      }
+      expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(200);
+      for (let turn = 0; turn < 4; turn++) await step(id);
+      expect(await counts(id)).toEqual({ accepted: 4, unknown: 2 });
+      for (const phone of requests[0] ?? [])
+        expect(requests.flat().filter((destination) => destination === phone)).toHaveLength(1);
+    } finally {
+      network.mockRestore();
+    }
+  });
+  it('preserves progress across successful, low-balance and uncertain batches with repeated manual resumption', async () => {
+    const { center, id } = await ready(12, 3);
+    const { requests, network } = intercept((phones, sequence) =>
+      sequence === 3
+        ? Promise.reject(new TypeError('Fixture response lost after a later batch'))
+        : Promise.resolve(receipt(phones, sequence === 2 ? 2 : phones.length)),
+    );
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await step(id);
+      await step(id);
+      expect(await counts(id)).toEqual({ accepted: 5, pending: 7 });
+      expect((await call(`/c/${center}/campaigns/${id}`)).body['state']).toBe('paused');
+      await statement(
+        env.DB,
+        "UPDATE balances SET balance='1000.00',checked_at=? WHERE center_id=?",
+        now(),
+        center,
+      ).run();
+      expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(200);
+      await step(id);
+      expect(await counts(id)).toEqual({ accepted: 5, pending: 4, unknown: 3 });
+      expect((await call(`/c/${center}/campaigns/${id}`)).body['state']).toBe('paused');
+      expect((await call(`/c/${center}/campaigns/${id}/resume`, 'POST', {})).status).toBe(200);
+      for (let turn = 0; turn < 4; turn++) await step(id);
+      expect(await counts(id)).toEqual({ accepted: 9, unknown: 3 });
+      expect((await call(`/c/${center}/campaigns/${id}`)).body).toMatchObject({
+        state: 'completed',
+        submitted: 9,
+        unknown: 3,
+      });
+      expect(requests).toHaveLength(5);
+      const confirmed = [...(requests[0] ?? []), ...(requests[1]?.slice(0, 2) ?? [])];
+      for (const phone of confirmed)
+        expect(requests.flat().filter((destination) => destination === phone)).toHaveLength(1);
+      for (const phone of requests[2] ?? []) expect(requests.slice(3).flat()).not.toContain(phone);
+    } finally {
+      network.mockRestore();
+      log.mockRestore();
+    }
+  });
+});
+
 describe('preserving academic relationships', () => {
   it('keeps existing archived links and membership dates without allowing new archived assignments', async () => {
     const group = await call(`/c/${centerId}/catalog`, 'POST', {
