@@ -14,7 +14,7 @@ import { app } from '../apps/worker/src/index';
 import { digest, hashPassword, secret, type Bindings } from '../apps/worker/src/security';
 import { now, one, rows, statement, uid } from '../apps/worker/src/db';
 import { processJob, scheduled, checkMessage } from '../apps/worker/src/campaigns';
-import { balance, parseSubmissions, type ProviderConfig } from '../apps/worker/src/provider';
+import { balance, base, parseSubmissions, type ProviderConfig } from '../apps/worker/src/provider';
 import { cleanup } from '../apps/worker/src/cleanup';
 
 declare module 'vitest' {
@@ -1335,7 +1335,7 @@ describe('campaign edge states', () => {
       const network = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-        expect(url).toBe('https://sms.ocs-api.top/api/send-bulk-sms');
+        expect(url).toBe(new URL('send-bulk-sms', base).href);
         if (typeof init?.body !== 'string') throw new Error('Expected a JSON submission body');
         const body = z
           .object({
@@ -1953,7 +1953,7 @@ describe('sending recovery races', () => {
     const requests: string[][] = [];
     const network = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      expect(url).toBe('https://sms.ocs-api.top/api/send-bulk-sms');
+      expect(url).toBe(new URL('send-bulk-sms', base).href);
       if (typeof init?.body !== 'string') throw new Error('Expected a JSON submission body');
       const body = z
         .object({ MessageParameters: z.array(z.object({ Number: z.string() })) })

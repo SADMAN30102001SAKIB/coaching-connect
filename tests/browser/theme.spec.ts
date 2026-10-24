@@ -1,6 +1,73 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('installed icons have rounded standard tiles and a smaller mask-safe message symbol', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const response = await page.request.get('/manifest.webmanifest');
+  expect(response.ok()).toBe(true);
+  const manifest = (await response.json()) as {
+    icons: { src: string; sizes: string; type: string; purpose: string }[];
+  };
+  expect(manifest.icons.map(({ sizes, purpose }) => ({ sizes, purpose }))).toEqual([
+    { sizes: '192x192', purpose: 'any' },
+    { sizes: '512x512', purpose: 'any' },
+    { sizes: '512x512', purpose: 'maskable' },
+  ]);
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+    'href',
+    '/icon-maskable-512.png',
+  );
+  for (const icon of manifest.icons) {
+    const asset = await page.request.get(icon.src);
+    expect(asset.ok()).toBe(true);
+    expect(asset.headers()['content-type']).toContain('image/png');
+    const pixels = await page.evaluate(async (src) => {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas is unavailable');
+      ctx.drawImage(image, 0, 0);
+      const { width, height } = canvas;
+      const data = ctx.getImageData(0, 0, width, height).data;
+      let left = width;
+      let right = 0;
+      let radius = 0;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const offset = (y * width + x) * 4;
+          const pixel = data.subarray(offset, offset + 4);
+          if (!pixel.every((channel, index) => channel >= (index === 3 ? 250 : 245))) continue;
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          radius = Math.max(radius, Math.hypot(x - width / 2, y - height / 2) / width);
+        }
+      }
+      return {
+        width,
+        height,
+        corners: [0, width - 1, (height - 1) * width, height * width - 1].map(
+          (offset) => data[offset * 4 + 3],
+        ),
+        symbolWidth: (right - left + 1) / width,
+        radius,
+      };
+    }, icon.src);
+    const size = Number(icon.sizes.split('x')[0]);
+    expect(pixels.width).toBe(size);
+    expect(pixels.height).toBe(size);
+    expect(pixels.corners).toEqual(Array(4).fill(icon.purpose === 'maskable' ? 255 : 0));
+    expect(pixels.symbolWidth).toBeGreaterThan(0.44);
+    expect(pixels.symbolWidth).toBeLessThan(0.49);
+    expect(pixels.radius).toBeLessThan(0.4);
+  }
+});
+
 test('appearance follows the device, persists overrides, and synchronizes tabs', async ({
   page,
 }, info) => {
