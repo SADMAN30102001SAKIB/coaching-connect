@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+export interface ValidationDetail {
+  field: string;
+  message: string;
+  section?: string;
+  item?: number;
+  limit?: number;
+}
+
 export const features = [
   'students',
   'groups',

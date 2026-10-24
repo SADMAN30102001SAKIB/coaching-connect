@@ -110,6 +110,35 @@ beforeAll(async () => {
   ]);
 });
 
+describe('validation responses', () => {
+  it('returns readable field messages and structured details without internal paths', async () => {
+    const response = await call(`/c/${centerId}/students`, 'POST', {
+      name: 'Validation only',
+      contacts: [{ phone: 'bad-number', audience: 'guardian' }],
+      group_ids: [],
+    });
+    expect(response.status).toBe(422);
+    const error = z
+      .object({
+        code: z.string(),
+        message: z.string(),
+        details: z.array(
+          z.object({
+            field: z.string(),
+            section: z.string(),
+            item: z.number(),
+            message: z.string(),
+          }),
+        ),
+      })
+      .parse(response.body['error']);
+    expect(error.code).toBe('VALIDATION_FAILED');
+    expect(error.message).toBe('Contact 1 — Phone number: Enter a valid Bangladesh mobile number');
+    expect(error.message).not.toMatch(/contacts\.0|bad-number/);
+    expect(error.details[0]).toMatchObject({ field: 'Phone number', section: 'Contact', item: 1 });
+  });
+});
+
 describe('platform center deletion', () => {
   async function seed() {
     const ids = {
@@ -1177,6 +1206,235 @@ describe('inactive exam discovery and reactivation', () => {
       active: 0,
       name: 'Edited archived exam',
     });
+  });
+});
+
+describe('explicit exam group enrollments', () => {
+  let phone = 18000000;
+  async function fixture() {
+    const center = uid();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        'INSERT INTO centers(id,name,owner_id) VALUES(?,?,?)',
+        center,
+        'Roster test',
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+      statement(
+        env.DB,
+        'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,created_at) VALUES(?,?,?,?,?)',
+        uid(),
+        center,
+        'mock-test-key',
+        '["TEST"]',
+        now(),
+      ),
+    ]);
+    const idOf = (response: Awaited<ReturnType<typeof call>>) => {
+      expect(response.status).toBeLessThan(300);
+      return z.string().parse(response.body.id);
+    };
+    const a = idOf(await call(`/c/${center}/catalog`, 'POST', { kind: 'group', name: 'Class 3' }));
+    const b = idOf(await call(`/c/${center}/catalog`, 'POST', { kind: 'group', name: 'Class 4' }));
+    const subject = idOf(
+      await call(`/c/${center}/catalog`, 'POST', { kind: 'subject', name: 'English' }),
+    );
+    const students: string[] = [];
+    for (const [name, groups] of [
+      ['ABC', [a]],
+      ['PQR', [a, b]],
+      ['DEF', [b]],
+      ['Individual', [a]],
+    ] as const) {
+      students.push(
+        idOf(
+          await call(`/c/${center}/students`, 'POST', {
+            name,
+            group_ids: groups,
+            contacts: [{ phone: `017${++phone}`, audience: 'guardian', permitted: true }],
+          }),
+        ),
+      );
+    }
+    const exam = idOf(
+      await call(`/c/${center}/exams`, 'POST', {
+        name: 'Test',
+        exam_date: '2026-10-25',
+        papers: [{ subject_id: subject, maximum: 10000 }],
+      }),
+    );
+    const detail = () => call(`/c/${center}/exams/${exam}`);
+    const paper = z.array(z.object({ id: z.string() })).parse((await detail()).body.papers)[0]?.id;
+    if (!paper) throw new Error('Missing test paper');
+    const add = (group_id: string) =>
+      call(`/c/${center}/exams/${exam}/participants`, 'POST', { group_id });
+    const remove = (group: string) =>
+      call(`/c/${center}/exams/${exam}/participants/${group}`, 'DELETE');
+    const marks = `/c/${center}/exams/${exam}/papers/${paper}/marks`;
+    return { center, exam, a, b, students, paper, detail, add, remove, marks };
+  }
+
+  it('shows only explicitly enrolled groups and removes overlapping groups without circular preservation', async () => {
+    const f = await fixture();
+    expect((await f.add(f.a)).body.added).toBe(3);
+    expect((await f.detail()).body.groups).toEqual([{ id: f.a, name: 'Class 3', count: 3 }]);
+    expect((await f.add(f.a)).body.added).toBe(0);
+    expect((await f.add(f.b)).body.added).toBe(1);
+    expect((await f.detail()).body.participants).toBe(4);
+    expect((await f.remove(f.a)).body.removed).toBe(2);
+    expect((await f.detail()).body.groups).toEqual([{ id: f.b, name: 'Class 4', count: 2 }]);
+    expect((await f.remove(f.b)).body.removed).toBe(2);
+    expect((await f.detail()).body).toMatchObject({ participants: 0, groups: [] });
+    expect((await f.remove(f.a)).body.removed).toBe(0);
+  });
+
+  it('keeps snapshots stable after membership changes and preserves individual enrollment', async () => {
+    const f = await fixture();
+    await call(`/c/${f.center}/exams/${f.exam}/participants`, 'POST', {
+      student_ids: [f.students[3]],
+    });
+    await f.add(f.a);
+    await statement(
+      env.DB,
+      'UPDATE group_members SET left_at=? WHERE center_id=? AND group_id=?',
+      now(),
+      f.center,
+      f.a,
+    ).run();
+    expect((await f.detail()).body.groups).toEqual([{ id: f.a, name: 'Class 3', count: 3 }]);
+    expect((await call(`${f.marks}?group_id=${f.a}`)).body.items).toHaveLength(3);
+    expect((await f.remove(f.a)).body.removed).toBe(2);
+    expect((await f.detail()).body).toMatchObject({ participants: 1, groups: [] });
+    expect(
+      await one(env.DB, 'SELECT student_id FROM participants WHERE center_id=?', f.center),
+    ).toEqual({ student_id: f.students[3] });
+  });
+
+  it('preserves shared marks but blocks and rolls back removal of the last scored enrollment', async () => {
+    const f = await fixture();
+    await f.add(f.a);
+    await f.add(f.b);
+    expect(
+      (
+        await call(f.marks, 'PUT', [
+          { student_id: f.students[1], status: 'scored', score: 7500, version: 0 },
+        ])
+      ).status,
+    ).toBe(200);
+    expect((await f.remove(f.a)).status).toBe(200);
+    await call(f.marks, 'PUT', [
+      { student_id: f.students[2], status: 'absent', score: null, version: 0 },
+    ]);
+    const blocked = await f.remove(f.b);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error).toMatchObject({ code: 'HAS_MARKS' });
+    expect((await f.detail()).body).toMatchObject({
+      participants: 2,
+      groups: [{ id: f.b, name: 'Class 4', count: 2 }],
+    });
+    expect((await call(f.marks)).body.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ student_id: f.students[1], score: 7500 }),
+        expect.objectContaining({ student_id: f.students[2], status: 'absent' }),
+      ]),
+    );
+    await call(f.marks, 'PUT', [
+      { student_id: f.students[1], status: 'pending', score: null, version: 1 },
+    ]);
+    expect((await f.remove(f.b)).body.removed).toBe(2);
+    expect((await f.detail()).body.participants).toBe(0);
+  });
+
+  it('handles concurrent group removals without discarding shared recorded marks', async () => {
+    const f = await fixture();
+    await f.add(f.a);
+    await f.add(f.b);
+    await call(f.marks, 'PUT', [
+      { student_id: f.students[1], status: 'scored', score: 5000, version: 0 },
+    ]);
+    const removed = await Promise.all([f.remove(f.a), f.remove(f.b)]);
+    expect(removed.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect((await f.detail()).body.participants).toBeGreaterThan(0);
+    expect(
+      await one(
+        env.DB,
+        'SELECT score FROM results WHERE center_id=? AND paper_id=? AND student_id=?',
+        f.center,
+        f.paper,
+        f.students[1],
+      ),
+    ).toEqual({ score: 5000 });
+  });
+
+  it('cleans snapshot enrollment when an exam or center is deleted', async () => {
+    const f = await fixture();
+    await f.add(f.a);
+    expect((await call(`/c/${f.center}/exams/${f.exam}`, 'DELETE')).status).toBe(200);
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS n FROM exam_groups WHERE center_id=?', f.center),
+    ).toEqual({ n: 0 });
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS n FROM exam_group_members WHERE center_id=?', f.center),
+    ).toEqual({ n: 0 });
+    const other = await fixture();
+    await other.add(other.a);
+    await call(`/platform/centers/${other.center}`, 'PATCH', { active: false });
+    expect(
+      (await call(`/platform/centers/${other.center}`, 'DELETE', { name: 'Roster test' })).status,
+    ).toBe(200);
+    expect(
+      await one(env.DB, 'SELECT COUNT(*) AS n FROM exam_groups WHERE center_id=?', other.center),
+    ).toEqual({ n: 0 });
+    expect(
+      await one(
+        env.DB,
+        'SELECT COUNT(*) AS n FROM exam_group_members WHERE center_id=?',
+        other.center,
+      ),
+    ).toEqual({ n: 0 });
+    expect(await rows(env.DB, 'PRAGMA foreign_key_check')).toEqual([]);
+  });
+
+  it('uses exam snapshots for result recipients and live memberships for announcements', async () => {
+    const f = await fixture();
+    await f.add(f.a);
+    for (const student of [f.students[0], f.students[1], f.students[3]])
+      await call(f.marks, 'PUT', [
+        { student_id: student, status: 'absent', score: null, version: 0 },
+      ]);
+    await statement(
+      env.DB,
+      'UPDATE group_members SET left_at=? WHERE center_id=? AND group_id=?',
+      now(),
+      f.center,
+      f.a,
+    ).run();
+    for (const scope of ['summary', 'announcement']) {
+      const created = await call(`/c/${f.center}/campaigns`, 'POST', {
+        name: 'Roster preview',
+        scope,
+        body: '{{student_name}}',
+        exam_ids: scope === 'summary' ? [f.exam] : [],
+        paper_id: null,
+        group_ids: [f.a],
+        student_ids: [],
+        audience: 'guardian',
+        idempotency_key: uid(),
+      });
+      expect(created.status).toBe(201);
+      const id = z.string().parse(created.body.id);
+      await processJob(bindings, id);
+      await processJob(bindings, id);
+      expect((await call(`/c/${f.center}/campaigns/${id}`)).body.total).toBe(
+        scope === 'summary' ? 3 : 0,
+      );
+    }
+    expect(
+      (await call(`/c/${otherCenter}/exams/${f.exam}/participants/${f.a}`, 'DELETE')).status,
+    ).toBe(403);
+    expect((await f.add(uid())).status).toBe(422);
   });
 });
 

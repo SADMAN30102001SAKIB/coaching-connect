@@ -2,10 +2,23 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { nameSchema, resultStatus, type Exam, type Mark, type Paper } from '@coaching/domain';
 import { one, rows, statement, uid } from './db';
-import { assert } from './errors';
+import { AppError, assert } from './errors';
 import { requirePermission, type AppEnv } from './security';
 
 export const exams = new Hono<AppEnv>();
+function participatingGroups(db: D1Database, center: string, exam: string) {
+  return rows<{ id: string; name: string; count: number }>(
+    db,
+    `SELECT eg.group_id AS id,COALESCE(g.name,eg.name) AS name,COUNT(m.student_id) AS count
+     FROM exam_groups eg
+     LEFT JOIN catalog g ON g.center_id=eg.center_id AND g.id=eg.group_id
+     LEFT JOIN exam_group_members m ON m.center_id=eg.center_id AND m.exam_id=eg.exam_id AND m.group_id=eg.group_id
+     WHERE eg.center_id=? AND eg.exam_id=? AND eg.group_id!=''
+     GROUP BY eg.group_id,COALESCE(g.name,eg.name) ORDER BY name`,
+    center,
+    exam,
+  );
+}
 const paperMarks = z.object({
   maximum: z.number().int().min(1).max(999999999),
 });
@@ -107,18 +120,7 @@ exams.get('/:id', async (c) => {
     a.center.id,
     item.id,
   );
-  const groups = await rows<{ id: string; name: string; count: number }>(
-    c.env.DB,
-    `SELECT g.id, g.name, COUNT(DISTINCT p.student_id) AS count
-     FROM participants p
-     JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.left_at IS NULL
-     JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
-     WHERE p.center_id=? AND p.exam_id=?
-     GROUP BY g.id, g.name
-     ORDER BY g.name`,
-    a.center.id,
-    item.id,
-  );
+  const groups = await participatingGroups(c.env.DB, a.center.id, item.id);
   return c.json({ ...item, papers, participants: count?.count ?? 0, groups });
 });
 exams.patch('/:id', async (c) => {
@@ -256,22 +258,74 @@ exams.post('/:id/participants', async (c) => {
     'Choose an active exam.',
     404,
   );
-  const result = input.group_id
-    ? await statement(
+  const examId = c.req.param('id');
+  const groupId = input.group_id ?? '';
+  const group = input.group_id
+    ? await one<{ name: string }>(
         c.env.DB,
-        'INSERT OR IGNORE INTO participants SELECT s.center_id,?,s.id FROM students s JOIN group_members gm ON gm.center_id=s.center_id AND gm.student_id=s.id WHERE s.center_id=? AND s.active=1 AND gm.group_id=? AND gm.left_at IS NULL',
-        c.req.param('id'),
+        "SELECT name FROM catalog WHERE center_id=? AND id=? AND kind='group' AND active=1",
         a.center.id,
-        input.group_id,
-      ).run()
-    : await statement(
-        c.env.DB,
-        'INSERT OR IGNORE INTO participants SELECT center_id,?,id FROM students WHERE center_id=? AND active=1 AND id IN (SELECT value FROM json_each(?))',
-        c.req.param('id'),
-        a.center.id,
-        JSON.stringify(input.student_ids),
-      ).run();
-  return c.json({ added: result.meta.changes });
+        groupId,
+      )
+    : null;
+  assert(
+    !input.group_id || group,
+    'INVALID_GROUP',
+    'Choose an active group from this center.',
+    422,
+  );
+  assert(
+    input.group_id || input.student_ids.length,
+    'PARTICIPANTS_REQUIRED',
+    'Choose a group or at least one student.',
+    422,
+  );
+  const result = await c.env.DB.batch([
+    statement(
+      c.env.DB,
+      'INSERT OR IGNORE INTO exam_groups VALUES(?,?,?,?)',
+      a.center.id,
+      examId,
+      groupId,
+      group?.name ?? '',
+    ),
+    input.group_id
+      ? statement(
+          c.env.DB,
+          'INSERT OR IGNORE INTO participants SELECT s.center_id,?,s.id FROM students s JOIN group_members gm ON gm.center_id=s.center_id AND gm.student_id=s.id WHERE s.center_id=? AND s.active=1 AND gm.group_id=? AND gm.left_at IS NULL RETURNING student_id',
+          examId,
+          a.center.id,
+          input.group_id,
+        )
+      : statement(
+          c.env.DB,
+          'INSERT OR IGNORE INTO participants SELECT center_id,?,id FROM students WHERE center_id=? AND active=1 AND id IN (SELECT value FROM json_each(?)) RETURNING student_id',
+          examId,
+          a.center.id,
+          JSON.stringify(input.student_ids),
+        ),
+    input.group_id
+      ? statement(
+          c.env.DB,
+          `INSERT OR IGNORE INTO exam_group_members
+       SELECT p.center_id,p.exam_id,gm.group_id,p.student_id FROM participants p
+       JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.left_at IS NULL
+       JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id AND s.active=1
+       WHERE p.center_id=? AND p.exam_id=? AND gm.group_id=?`,
+          a.center.id,
+          examId,
+          groupId,
+        )
+      : statement(
+          c.env.DB,
+          `INSERT OR IGNORE INTO exam_group_members SELECT center_id,exam_id,'',student_id FROM participants
+         WHERE center_id=? AND exam_id=? AND student_id IN (SELECT value FROM json_each(?))`,
+          a.center.id,
+          examId,
+          JSON.stringify(input.student_ids),
+        ),
+  ]);
+  return c.json({ added: result[1]?.results.length ?? 0 });
 });
 exams.delete('/:id/participants/:groupId', async (c) => {
   const a = requirePermission(c, 'exams.update');
@@ -286,71 +340,51 @@ exams.delete('/:id/participants/:groupId', async (c) => {
   );
   assert(exam, 'NOT_FOUND', 'Choose an active exam.', 404);
 
-  const scored = await one<{ count: number }>(
-    c.env.DB,
-    `SELECT COUNT(*) AS count FROM results r
-     JOIN papers p ON p.center_id=r.center_id AND p.id=r.paper_id
-     WHERE r.center_id=? AND p.exam_id=? AND r.status='scored'
-       AND r.student_id IN (
-         SELECT gm.student_id FROM group_members gm WHERE gm.center_id=? AND gm.group_id=?
-       )`,
-    a.center.id,
-    examId,
-    a.center.id,
-    groupId,
-  );
-  assert(
-    !scored?.count,
-    'HAS_MARKS',
-    'Cannot remove group because marks have already been recorded for some students in this group.',
-    409,
-  );
-
-  await statement(
-    c.env.DB,
-    `DELETE FROM results
-     WHERE center_id=?
-       AND paper_id IN (SELECT id FROM papers WHERE center_id=? AND exam_id=?)
-       AND student_id IN (
-         SELECT gm.student_id FROM group_members gm WHERE gm.center_id=? AND gm.group_id=?
-       )
-       AND student_id NOT IN (
-         SELECT gm2.student_id FROM group_members gm2
-         JOIN participants p2 ON p2.center_id=gm2.center_id AND p2.exam_id=? AND p2.student_id=gm2.student_id
-         WHERE gm2.center_id=? AND gm2.group_id!=? AND gm2.left_at IS NULL
-       )`,
-    a.center.id,
-    a.center.id,
-    examId,
-    a.center.id,
-    groupId,
-    examId,
-    a.center.id,
-    groupId,
-  ).run();
-
-  const result = await statement(
-    c.env.DB,
-    `DELETE FROM participants
-     WHERE center_id=? AND exam_id=?
-       AND student_id IN (
-         SELECT gm.student_id FROM group_members gm WHERE gm.center_id=? AND gm.group_id=?
-       )
-       AND student_id NOT IN (
-         SELECT gm2.student_id FROM group_members gm2
-         JOIN participants p2 ON p2.center_id=gm2.center_id AND p2.exam_id=? AND p2.student_id=gm2.student_id
-         WHERE gm2.center_id=? AND gm2.group_id!=? AND gm2.left_at IS NULL
-       )`,
-    a.center.id,
-    examId,
-    a.center.id,
-    groupId,
-    examId,
-    a.center.id,
-    groupId,
-  ).run();
-
-  return c.json({ removed: result.meta.changes });
+  const exclusive = `SELECT m.student_id FROM exam_group_members m
+    WHERE m.center_id=? AND m.exam_id=? AND m.group_id=?
+      AND NOT EXISTS(SELECT 1 FROM exam_group_members other WHERE other.center_id=m.center_id
+        AND other.exam_id=m.exam_id AND other.student_id=m.student_id AND other.group_id!=m.group_id)`;
+  try {
+    const result = await c.env.DB.batch([
+      statement(
+        c.env.DB,
+        `DELETE FROM results WHERE center_id=? AND status!='scored'
+        AND paper_id IN (SELECT id FROM papers WHERE center_id=? AND exam_id=?)
+        AND student_id IN (${exclusive})`,
+        a.center.id,
+        a.center.id,
+        examId,
+        a.center.id,
+        examId,
+        groupId,
+      ),
+      statement(
+        c.env.DB,
+        `DELETE FROM participants WHERE center_id=? AND exam_id=? AND student_id IN (${exclusive}) RETURNING student_id`,
+        a.center.id,
+        examId,
+        a.center.id,
+        examId,
+        groupId,
+      ),
+      statement(
+        c.env.DB,
+        'DELETE FROM exam_groups WHERE center_id=? AND exam_id=? AND group_id=?',
+        a.center.id,
+        examId,
+        groupId,
+      ),
+    ]);
+    return c.json({ removed: result[1]?.results.length ?? 0 });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('EXAM_GROUP_HAS_MARKS'))
+      throw new AppError(
+        'HAS_MARKS',
+        'Clear recorded marks for students who would leave this exam before removing the group.',
+        409,
+      );
+    throw error;
+  }
 });
 exams.get('/:id/papers/:paper/marks', async (c) => {
   const a = requirePermission(c, 'results.read');
@@ -363,26 +397,15 @@ exams.get('/:id/papers/:paper/marks', async (c) => {
   );
   assert(paper, 'NOT_FOUND', 'This paper is unavailable.', 404);
   const groupId = c.req.query('group_id');
-  const groups = await rows<{ id: string; name: string; count: number }>(
-    c.env.DB,
-    `SELECT g.id, g.name, COUNT(DISTINCT p.student_id) AS count
-     FROM participants p
-     JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.left_at IS NULL
-     JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
-     WHERE p.center_id=? AND p.exam_id=?
-     GROUP BY g.id, g.name
-     ORDER BY g.name`,
-    a.center.id,
-    paper.exam_id,
-  );
+  const groups = await participatingGroups(c.env.DB, a.center.id, paper.exam_id);
   const items = groupId
     ? await rows<Mark>(
         c.env.DB,
         `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
-         (SELECT GROUP_CONCAT(g.name, ', ') FROM group_members gm JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group' WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL) AS group_name
+         (SELECT GROUP_CONCAT(COALESCE(g.name,eg.name), ', ') FROM exam_group_members gm JOIN exam_groups eg ON eg.center_id=gm.center_id AND eg.exam_id=gm.exam_id AND eg.group_id=gm.group_id LEFT JOIN catalog g ON g.center_id=eg.center_id AND g.id=eg.group_id WHERE gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id!='') AS group_name
          FROM participants p
          JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id
-         JOIN group_members gm ON gm.center_id=p.center_id AND gm.student_id=p.student_id AND gm.group_id=? AND gm.left_at IS NULL
+         JOIN exam_group_members gm ON gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id=?
          LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?
          WHERE p.center_id=? AND p.exam_id=? AND p.student_id>?
          ORDER BY p.student_id LIMIT 51`,
@@ -395,7 +418,7 @@ exams.get('/:id/papers/:paper/marks', async (c) => {
     : await rows<Mark>(
         c.env.DB,
         `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
-         (SELECT GROUP_CONCAT(g.name, ', ') FROM group_members gm JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group' WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL) AS group_name
+         (SELECT GROUP_CONCAT(COALESCE(g.name,eg.name), ', ') FROM exam_group_members gm JOIN exam_groups eg ON eg.center_id=gm.center_id AND eg.exam_id=gm.exam_id AND eg.group_id=gm.group_id LEFT JOIN catalog g ON g.center_id=eg.center_id AND g.id=eg.group_id WHERE gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id!='') AS group_name
          FROM participants p
          JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id
          LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?

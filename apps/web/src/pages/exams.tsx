@@ -413,8 +413,9 @@ function ExamDetail() {
   const exam = useData<ExamDetailData>(`/exams/${id}`);
   const { permissions } = useCenter();
   const groups = useChoices<Catalog>('/catalog?kind=group', permissions.includes('groups.read'));
-  const action = useAction();
-  const removeAction = useAction();
+  const action = useAction<{ added: number }>();
+  const removeAction = useAction<{ removed: number }>();
+  const [participantGroup, setParticipantGroup] = useState('');
   const navigate = useNavigate();
   const { t } = useLocale();
   const [editing, setEditing] = useState(false);
@@ -510,15 +511,27 @@ function ExamDetail() {
                   className="inline-form add-participants-form"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    const f = new FormData(e.currentTarget);
-                    action.mutate({
-                      path: `/exams/${id}/participants`,
-                      body: { group_id: f.get('group') },
-                    });
+                    removeAction.reset();
+                    action.mutate(
+                      {
+                        path: `/exams/${id}/participants`,
+                        body: { group_id: participantGroup },
+                      },
+                      { onSuccess: () => setParticipantGroup('') },
+                    );
                   }}
                 >
                   <Field label="Groups">
-                    <select name="group" required>
+                    <select
+                      name="group"
+                      required
+                      value={participantGroup}
+                      onChange={(e) => {
+                        setParticipantGroup(e.target.value);
+                        action.reset();
+                        removeAction.reset();
+                      }}
+                    >
                       <option value="">{t('Choose a group')}</option>
                       {groups.data?.items.map((g) => (
                         <option value={g.id} key={g.id}>
@@ -543,7 +556,18 @@ function ExamDetail() {
               <Alert error={action.error} />
               {action.isSuccess && (
                 <Alert success>
-                  {t('Participants added. Existing participants were not duplicated.')}
+                  {t(
+                    action.data.added === 0
+                      ? 'Group enrolled. All students were already participating.'
+                      : 'Participants added. Existing participants were not duplicated.',
+                  )}
+                </Alert>
+              )}
+              {removeAction.isSuccess && (
+                <Alert success>
+                  {t(
+                    'Group removed. Other group enrollments and individual enrollments were kept.',
+                  )}
                 </Alert>
               )}
               {exam.data.groups && exam.data.groups.length > 0 && (
@@ -569,6 +593,7 @@ function ExamDetail() {
                           <Button
                             variant="danger"
                             onClick={() => {
+                              action.reset();
                               removeAction.reset();
                               setRemoveGroup(g);
                             }}
@@ -716,7 +741,7 @@ function ExamDetail() {
               </p>
               <p className="muted">
                 {t(
-                  'Students in this group will be removed from exam participants. Any recorded marks must be cleared first.',
+                  'Only students enrolled solely through this group will leave the exam. Other enrollments are kept. Clear recorded marks before removing a student’s last enrollment.',
                 )}
               </p>
               <Alert error={removeAction.error} />

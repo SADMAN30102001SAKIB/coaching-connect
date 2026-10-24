@@ -540,6 +540,31 @@ const bn: Record<string, string> = {
   'batches selected': 'টি ব্যাচ নির্বাচিত',
   'All students included (no batch filter)': 'সব শিক্ষার্থী অন্তর্ভুক্ত (কোনো ব্যাচ ফিল্টার নেই)',
   'All exam participants': 'পরীক্ষার সব অংশগ্রহণকারী',
+  'Group enrolled. All students were already participating.':
+    'ব্যাচটি যুক্ত হয়েছে। সব শিক্ষার্থী আগে থেকেই পরীক্ষায় অংশ নিচ্ছে।',
+  'Group removed. Other group enrollments and individual enrollments were kept.':
+    'ব্যাচটি সরানো হয়েছে। অন্য ব্যাচের মাধ্যমে বা আলাদাভাবে যুক্ত শিক্ষার্থীদের রাখা হয়েছে।',
+  'Only students enrolled solely through this group will leave the exam. Other enrollments are kept. Clear recorded marks before removing a student’s last enrollment.':
+    'শুধু এই ব্যাচের মাধ্যমে যুক্ত শিক্ষার্থীদের পরীক্ষা থেকে সরানো হবে। অন্যভাবে যুক্ত শিক্ষার্থীদের রাখা হবে। কোনো শিক্ষার্থীকে পুরোপুরি সরানোর আগে তার সংরক্ষিত নম্বর মুছুন।',
+  'Clear recorded marks for students who would leave this exam before removing the group.':
+    'ব্যাচটি সরানোর ফলে যেসব শিক্ষার্থী পরীক্ষা থেকে বাদ পড়বে, আগে তাদের সংরক্ষিত নম্বর মুছুন।',
+  Form: 'ফর্ম',
+  Contact: 'যোগাযোগ',
+  Item: 'আইটেম',
+  'Check this value and try again.': 'এই তথ্যটি যাচাই করে আবার চেষ্টা করুন।',
+  'This field is required.': 'এই ঘরটি পূরণ করুন।',
+  'Use at least {limit} characters.': 'অন্তত {limit} অক্ষর লিখুন।',
+  'Use {limit} characters or fewer.': '{limit} অক্ষর বা তার কম লিখুন।',
+  'Choose at least {limit} items.': 'অন্তত {limit}টি আইটেম নির্বাচন করুন।',
+  'Choose no more than {limit} items.': '{limit}টির বেশি আইটেম নির্বাচন করবেন না।',
+  'Enter a number of at least {limit}.': 'অন্তত {limit} বা তার চেয়ে বড় সংখ্যা লিখুন।',
+  'Enter a number no greater than {limit}.': '{limit} বা তার চেয়ে ছোট সংখ্যা লিখুন।',
+  'Enter a number greater than {limit}.': '{limit} এর চেয়ে বড় সংখ্যা লিখুন।',
+  'Enter a number less than {limit}.': '{limit} এর চেয়ে ছোট সংখ্যা লিখুন।',
+  'Enter a valid number.': 'সঠিক সংখ্যা লিখুন।',
+  'Enter a value for this field.': 'এই ঘরটি পূরণ করুন।',
+  'Enter a valid date.': 'সঠিক তারিখ লিখুন।',
+  'Choose one of the available options.': 'উপলব্ধ বিকল্পগুলোর একটি নির্বাচন করুন।',
   'Leave empty to include all participants in the selected exams.':
     'নির্বাচিত পরীক্ষার সব অংশগ্রহণকারীকে অন্তর্ভুক্ত করতে খালি রাখুন।',
   'None selected': 'কোনোটি নির্বাচিত নয়',

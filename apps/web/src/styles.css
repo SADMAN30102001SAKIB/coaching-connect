@@ -876,7 +876,8 @@ select:disabled {
   color: var(--text-secondary);
   font-size: 14px;
 }
-.query-notice > span {
+.query-notice > span,
+.query-notice > div {
   flex: 1;
   min-width: 150px;
 }
@@ -2383,14 +2384,30 @@ dialog .actions {
   line-height: 1.6;
 }
 .platform-center-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  width: 160px;
   align-items: center;
   gap: 8px;
   justify-content: flex-end;
 }
 .platform-center-actions small {
   font-size: 12px;
+}
+.platform-center-actions > .button:first-child {
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  justify-content: center;
+}
+.platform-center-actions > .danger-icon-btn {
+  grid-column: 2;
+  grid-row: 1;
+}
+.platform-center-hint {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 18px;
 }
 @media (max-width: 1023px) {
   .send-controls {
@@ -2421,6 +2438,7 @@ dialog .actions {
   }
   .platform-center-actions {
     justify-content: flex-start;
+    width: 100%;
   }
   .center-contact-separator {
     display: none;

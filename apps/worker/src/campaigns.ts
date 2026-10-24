@@ -634,7 +634,13 @@ async function prepare(env: Bindings, campaign: StoredCampaign, input: CampaignI
   }
   const students = await rows<Student>(
     env.DB,
-    `SELECT s.* FROM students s WHERE s.center_id=? AND s.active=1 AND s.id>? AND (?='announcement' OR EXISTS(SELECT 1 FROM participants p WHERE p.center_id=s.center_id AND p.student_id=s.id AND p.exam_id IN (SELECT value FROM json_each(?)))) AND (?='[]' OR s.id IN (SELECT value FROM json_each(?))) AND (?='[]' OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL AND gm.group_id IN (SELECT value FROM json_each(?)))) ORDER BY s.id LIMIT 20`,
+    `SELECT s.* FROM students s WHERE s.center_id=? AND s.active=1 AND s.id>?
+      AND (?='announcement' OR EXISTS(SELECT 1 FROM participants p WHERE p.center_id=s.center_id AND p.student_id=s.id AND p.exam_id IN (SELECT value FROM json_each(?))))
+      AND (?='[]' OR s.id IN (SELECT value FROM json_each(?)))
+      AND (?='[]'
+        OR (?='announcement' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL AND gm.group_id IN (SELECT value FROM json_each(?))))
+        OR (?!='announcement' AND EXISTS(SELECT 1 FROM exam_group_members gm WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.exam_id IN (SELECT value FROM json_each(?)) AND gm.group_id IN (SELECT value FROM json_each(?)))))
+      ORDER BY s.id LIMIT 20`,
     center.id,
     campaign.cursor,
     input.scope,
@@ -642,6 +648,10 @@ async function prepare(env: Bindings, campaign: StoredCampaign, input: CampaignI
     JSON.stringify(input.student_ids),
     JSON.stringify(input.student_ids),
     JSON.stringify(input.group_ids),
+    input.scope,
+    JSON.stringify(input.group_ids),
+    input.scope,
+    JSON.stringify(input.exam_ids),
     JSON.stringify(input.group_ids),
   );
   if (!students.length) {

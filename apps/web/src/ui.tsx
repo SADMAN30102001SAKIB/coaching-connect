@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from './i18n';
 import { useBlocker, useSearchParams } from 'react-router';
-import { ApiError } from './api';
+import { ApiError, retryRead } from './api';
 import { useIsMutating } from '@tanstack/react-query';
 
 export function Button({
@@ -74,14 +74,36 @@ export function Alert({
   children?: ReactNode;
   success?: boolean;
 }) {
-  const { t } = useLocale();
   if (!error && !children) return null;
   return (
     <div className={`alert ${success ? 'success' : 'error'}`} role={success ? 'status' : 'alert'}>
       {success ? <CheckCircle2 size={19} /> : <AlertCircle size={19} />}
-      <div>{error instanceof Error ? t(error.message) : children}</div>
+      <div>{error instanceof Error ? <ErrorText error={error} /> : children}</div>
     </div>
   );
+}
+function ErrorText({ error }: { error: Error }) {
+  const { t, locale } = useLocale();
+  if (error instanceof ApiError && error.details.length) {
+    const number = new Intl.NumberFormat(locale);
+    return (
+      <>
+        {error.details.map((detail, index) => (
+          <div key={index}>
+            {detail.section && detail.item
+              ? `${t(detail.section)} ${number.format(detail.item)} — `
+              : ''}
+            {t(detail.field)}:{' '}
+            {t(detail.message).replace(
+              '{limit}',
+              detail.limit === undefined ? '' : number.format(detail.limit),
+            )}
+          </div>
+        ))}
+      </>
+    );
+  }
+  return <>{t(error.message)}</>;
 }
 export function Page({
   eyebrow,
@@ -179,16 +201,18 @@ export function State({
     <div className="query-state" aria-busy={query.isFetching}>
       {(query.error || paused) && (
         <div className="query-notice" role="status">
-          <span>
-            {hasData
-              ? t('Showing saved data. Reconnect or try again to update.')
-              : paused
-                ? t('You are offline. Reconnect to load this screen.')
-                : query.error instanceof Error
-                  ? t(query.error.message)
-                  : t('This request could not finish. Please try again.')}
-          </span>
-          {!paused && (
+          <div>
+            {hasData && (paused || retryRead(0, query.error)) ? (
+              t('Showing saved data. Reconnect or try again to update.')
+            ) : paused ? (
+              t('You are offline. Reconnect to load this screen.')
+            ) : query.error instanceof Error ? (
+              <ErrorText error={query.error} />
+            ) : (
+              t('This request could not finish. Please try again.')
+            )}
+          </div>
+          {!paused && retryRead(0, query.error) && (
             <Button
               type="button"
               variant="secondary"
@@ -658,17 +682,25 @@ export function SearchableSelect<T extends { id: string; name: string }>({
             )}
             {!query?.isPending && query?.error ? (
               <div className="query-notice" role="status">
-                <span>{t('Could not update choices. Try again.')}</span>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  busy={query.isFetching}
-                  onClick={() => {
-                    void query.refetch();
-                  }}
-                >
-                  {t('Try again')}
-                </Button>
+                <div>
+                  {query.error instanceof Error ? (
+                    <ErrorText error={query.error} />
+                  ) : (
+                    t('This request could not finish. Please try again.')
+                  )}
+                </div>
+                {retryRead(0, query.error) && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    busy={query.isFetching}
+                    onClick={() => {
+                      void query.refetch();
+                    }}
+                  >
+                    {t('Try again')}
+                  </Button>
+                )}
               </div>
             ) : null}
             {filteredItems.length > 0

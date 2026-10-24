@@ -6,7 +6,7 @@ import { nameSchema, phoneSchema } from '@coaching/domain';
 import { auth, invite } from './auth';
 import { campaigns, dispatch, processJob, scheduled } from './campaigns';
 import { now, one, rows, statement, uid } from './db';
-import { AppError, assert } from './errors';
+import { AppError, assert, validationDetails } from './errors';
 import { exams } from './exams';
 import { balance, configFor, senderSchema } from './provider';
 import { records } from './records';
@@ -364,19 +364,32 @@ app.onError((error, c) => {
   const requestId = c.get('requestId');
   if (error instanceof AppError)
     return c.json({ error: { code: error.code, message: error.message, requestId } }, error.status);
-  if (error instanceof z.ZodError)
+  if (error instanceof z.ZodError) {
+    const details = validationDetails(error);
+    console.warn(
+      JSON.stringify({
+        event: 'validation.failed',
+        requestId,
+        issues: error.issues.map((issue) => ({ code: issue.code, path: issue.path })),
+      }),
+    );
     return c.json(
       {
         error: {
           code: 'VALIDATION_FAILED',
-          message: error.issues
-            .map((i) => `${i.path.join('.') || 'Input'}: ${i.message}`)
-            .join('; '),
+          message: details
+            .map(
+              (detail) =>
+                `${detail.section ? `${detail.section} ${detail.item} — ` : ''}${detail.field}: ${detail.message.replace('{limit}', String(detail.limit ?? ''))}`,
+            )
+            .join(' '),
+          details,
           requestId,
         },
       },
       422,
     );
+  }
   if (error.message.includes('PREVIEW_CHANGED'))
     return c.json(
       {

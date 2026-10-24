@@ -120,9 +120,9 @@ export default function Platform() {
                       <Trash2 size={17} />
                     </Button>
                   )}
-                  {Boolean(center.active) && (
-                    <small className="muted">{t('Suspend before deleting.')}</small>
-                  )}
+                  <small className="muted platform-center-hint">
+                    {center.active ? t('Suspend before deleting.') : ''}
+                  </small>
                 </div>
               </article>
             ))}

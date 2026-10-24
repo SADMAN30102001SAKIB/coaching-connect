@@ -1,6 +1,173 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('exam enrollment resets its selection and replaces stale add feedback after removal', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  let enrolled = false;
+  await page.route('**/api/c/center-a/exams/exam-a**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && path.endsWith('/participants')) {
+      enrolled = true;
+      return route.fulfill({ json: { added: 2 } });
+    }
+    if (request.method() === 'DELETE') {
+      enrolled = false;
+      return route.fulfill({ json: { removed: 2 } });
+    }
+    return route.fulfill({
+      json: {
+        id: 'exam-a',
+        name: 'Roster exam',
+        active: 1,
+        version: 1,
+        exam_date: '2026-10-25',
+        papers: [],
+        participants: enrolled ? 2 : 0,
+        groups: enrolled ? [{ id: 'group-a', name: 'Batch A', count: 2 }] : [],
+      },
+    });
+  });
+  await page.goto('/exams/exam-a');
+  await page.getByLabel('Groups', { exact: true }).selectOption('group-a');
+  await page.getByRole('button', { name: 'Add participants', exact: true }).click();
+  await expect(page.getByLabel('Groups', { exact: true })).toHaveValue('');
+  const oldNotice = page.getByText(
+    'Participants added. Existing participants were not duplicated.',
+    { exact: true },
+  );
+  await expect(oldNotice).toBeVisible();
+  await expect(page.locator('.participating-group-row')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(oldNotice).toHaveCount(0);
+  const dialog = page.getByRole('dialog', { name: 'Remove group', exact: true });
+  await expect(dialog).toContainText('Other enrollments are kept');
+  await dialog.getByRole('button', { name: 'Remove group', exact: true }).click();
+  await expect(page.locator('.participating-group-row')).toHaveCount(0);
+  await expect(
+    page.getByText('Group removed. Other group enrollments and individual enrollments were kept.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath('enrollment-feedback.png'), fullPage: true });
+});
+
+test('platform restore and suspend actions align across active and suspended centers', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  control.platform = true;
+  control.noCenters = true;
+  await page.route('**/api/platform/centers?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: 'center-a',
+            name: 'Active center',
+            owner_name: 'Admin',
+            owner_phone: '01700000013',
+            active: 1,
+          },
+          {
+            id: 'center-b',
+            name: 'Suspended center',
+            owner_name: 'Another admin',
+            owner_phone: '01700000014',
+            active: 0,
+          },
+        ],
+        next: null,
+      },
+    }),
+  );
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Suspended center', exact: true })).toBeVisible();
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 850 });
+    const suspend = await page.getByRole('button', { name: 'Suspend', exact: true }).boundingBox();
+    const restore = await page.getByRole('button', { name: 'Restore', exact: true }).boundingBox();
+    if (!suspend || !restore) throw new Error('Missing center controls');
+    expect(suspend.x).toBeCloseTo(restore.x, 0);
+    expect(suspend.width).toBeCloseTo(restore.width, 0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: info.outputPath(`aligned-center-actions-${width}.png`),
+      fullPage: true,
+    });
+  }
+});
+
+test('validation explains contact fields in English and Bangla without exposing paths', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  await page.route('**/api/c/center-a/students', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    return route.fulfill({
+      status: 422,
+      json: {
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'Contact 1 — Phone number: Enter a valid Bangladesh mobile number',
+          details: [
+            {
+              field: 'Phone number',
+              section: 'Contact',
+              item: 1,
+              message: 'Enter a valid Bangladesh mobile number',
+            },
+          ],
+        },
+      },
+    });
+  });
+  await page.goto('/students/new');
+  await page.getByLabel('Name', { exact: true }).fill('Validation draft');
+  await page.getByLabel('Phone number', { exact: true }).fill('0173456789');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText(
+    'Contact 1 — Phone number: Enter a valid Bangladesh mobile number',
+  );
+  await expect(alert).not.toContainText('contacts.0.phone');
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Validation draft');
+  await page.getByRole('button', { name: 'বাংলা', exact: true }).click();
+  await expect(alert).toContainText('যোগাযোগ ১ — ফোন নম্বর: বাংলাদেশের সঠিক মোবাইল নম্বর লিখুন');
+  await alert.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('readable-validation.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('non-retryable read errors do not offer a misleading retry button', async ({ page }) => {
+  await fixture(page);
+  let status = 403;
+  await page.route('**/api/c/center-a/students?*', (route) =>
+    route.fulfill({
+      status,
+      json: {
+        error: {
+          code: 'ACCESS_DENIED',
+          message: 'Your role does not allow this action. Ask your center admin.',
+        },
+      },
+    }),
+  );
+  for (status of [403, 404, 422]) {
+    await page.goto('/students');
+    await expect(
+      page.getByText('Your role does not allow this action. Ask your center admin.', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0);
+  }
+});
+
 test('dashboard hides message history and its links without read permission', async ({ page }) => {
   const control = await fixture(page);
   control.admin = false;

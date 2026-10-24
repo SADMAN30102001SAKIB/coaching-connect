@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext } from 'react';
-import type { Context, Mark, Page, ResultStatus } from '@coaching/domain';
+import type { Context, Mark, Page, ResultStatus, ValidationDetail } from '@coaching/domain';
 
 export function formText(form: FormData, name: string): string {
   const value = form.get(name);
@@ -13,6 +13,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     public requestId?: string,
+    public details: ValidationDetail[] = [],
   ) {
     super(message);
   }
@@ -73,7 +74,9 @@ export async function request<T>(
   if (!response.ok) {
     const data =
       value && typeof value === 'object'
-        ? (value as { error?: { message?: string; code?: string; requestId?: string } })
+        ? (value as {
+            error?: { message?: string; code?: string; requestId?: string; details?: unknown };
+          })
         : {};
     if (
       response.status === 401 &&
@@ -89,6 +92,34 @@ export async function request<T>(
       response.status,
       data.error?.code ?? 'REQUEST_FAILED',
       data.error?.requestId,
+      data.error?.code === 'VALIDATION_FAILED' && Array.isArray(data.error.details)
+        ? data.error.details.flatMap((detail: unknown) => {
+            if (
+              !detail ||
+              typeof detail !== 'object' ||
+              !('field' in detail) ||
+              !('message' in detail) ||
+              typeof detail.field !== 'string' ||
+              typeof detail.message !== 'string'
+            )
+              return [];
+            return [
+              {
+                field: detail.field,
+                message: detail.message,
+                ...('section' in detail && typeof detail.section === 'string'
+                  ? { section: detail.section }
+                  : {}),
+                ...('item' in detail && typeof detail.item === 'number'
+                  ? { item: detail.item }
+                  : {}),
+                ...('limit' in detail && typeof detail.limit === 'number'
+                  ? { limit: detail.limit }
+                  : {}),
+              },
+            ];
+          })
+        : [],
     );
   }
   return value as T;
