@@ -301,6 +301,65 @@ test('warm surfaces and bundled Latin fonts are consistent across shared compone
   await cdp.detach();
 });
 
+test('shared typography stays readable without overflowing narrow layouts', async ({
+  page,
+}, info) => {
+  await fixture(page, ['balance.read']);
+  const widths = info.project.use.isMobile ? [320, 390] : [768, 1280];
+  for (const locale of ['en', 'bn']) {
+    await page.goto('/');
+    await page.evaluate((value) => localStorage.setItem('locale', value), locale);
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 850 });
+      for (const path of [
+        '/',
+        '/students',
+        '/students/student-a',
+        '/exams/exam-a',
+        '/messages/new',
+        '/templates',
+        '/groups',
+      ]) {
+        await page.goto(path);
+        await expect(page.locator('.page-content h1')).toBeVisible();
+        await expect(page.locator('html')).toHaveAttribute('lang', locale);
+        await expect(page.getByRole('status', { name: /Loading|লোড/ })).toHaveCount(0);
+        await page.evaluate(() => document.fonts.ready);
+        const problems = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>('body *')].flatMap((element) => {
+            if (
+              !element.getClientRects().length ||
+              getComputedStyle(element).visibility === 'hidden'
+            )
+              return [];
+            const text = [...element.childNodes]
+              .filter((node) => node.nodeType === Node.TEXT_NODE)
+              .map((node) => node.textContent?.trim() ?? '')
+              .join('');
+            if (!text) return [];
+            const size = parseFloat(getComputedStyle(element).fontSize);
+            const action = element.matches('button, a.button');
+            return size < (action ? 14 : 12) ? [{ text, size, selector: element.className }] : [];
+          }),
+        );
+        expect(problems, `${locale} ${width}px ${path}`).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        const clipped = await page
+          .locator('.button, .bottom-nav a')
+          .evaluateAll((elements) =>
+            elements
+              .filter((element) => element.scrollWidth > element.clientWidth + 1)
+              .map((element) => element.textContent),
+          );
+        expect(clipped, `${locale} ${width}px ${path}`).toEqual([]);
+      }
+    }
+    await page.screenshot({ path: info.outputPath(`typography-${locale}.png`), fullPage: true });
+  }
+});
+
 test('auth back actions are separated in reset, setup and activation modes', async ({
   page,
 }, info) => {
@@ -1449,11 +1508,21 @@ test('reconnecting during account setup does not hide unacknowledged recovery co
 test('list pagination and search survive detail visits and browser Back', async ({ page }) => {
   await fixture(page);
   await page.route(/\/api\/c\/center-a\/students\?/, (route) => {
-    const cursor = new URL(route.request().url()).searchParams.get('cursor');
+    const params = new URL(route.request().url()).searchParams;
+    const cursor = params.get('cursor');
+    const query = params.get('q');
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        items: [{ id: 'student-a', name: 'Student A', identifier: 'a', active: 1, version: 1 }],
+        items: [
+          {
+            id: 'student-a',
+            name: query || 'Student A',
+            identifier: query ? `Result for ${query}` : 'a',
+            active: 1,
+            version: 1,
+          },
+        ],
         next: cursor ? null : 'next-cursor',
       }),
     });
@@ -1473,9 +1542,13 @@ test('list pagination and search survive detail visits and browser Back', async 
   await search.fill('Student A');
   await search.press('Enter');
   await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('Student A');
+  await expect(page.locator('.record-row small')).toHaveText('Result for Student A');
   await search.fill('Student B');
   await search.press('Enter');
   await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('Student B');
+  await expect(page.locator('.record-row small')).toHaveText('Result for Student B');
   await page.goBack();
+  await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('Student A');
   await expect(search).toHaveValue('Student A');
+  await expect(page.locator('.record-row small')).toHaveText('Result for Student A');
 });

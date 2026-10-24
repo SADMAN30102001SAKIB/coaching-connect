@@ -58,11 +58,23 @@ test('appearance follows the device, persists overrides, and synchronizes tabs',
   for (const mode of ['light', 'dark'] as const) {
     if ((await root.getAttribute('data-theme')) !== mode) await picker.click();
     await expect(root).toHaveAttribute('data-theme', mode);
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation instanceof CSSTransition)
+          .map((animation) => animation.finished),
+      );
+    });
     const accessibility = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
       .analyze();
     expect(
-      accessibility.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
+      accessibility.violations.map((v) => ({
+        id: v.id,
+        nodes: v.nodes.map((n) => ({ target: n.target, failure: n.failureSummary })),
+      })),
     ).toEqual([]);
     await page.screenshot({
       path: `test-results/${info.project.name}-auth-${mode}.png`,

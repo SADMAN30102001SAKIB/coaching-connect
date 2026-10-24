@@ -222,7 +222,7 @@ h2 {
   font-size: 20px;
   line-height: 1.4;
   letter-spacing: -0.3px;
-  font-weight: 650;
+  font-weight: 600;
 }
 small {
   font-size: 12px;
@@ -447,16 +447,16 @@ select:disabled {
   font-size: 15px;
 }
 .eyebrow {
-  font-size: 11px;
-  letter-spacing: 1.2px;
+  font-size: 12px;
+  letter-spacing: 0.5px;
   font-weight: 600;
   color: var(--muted);
   margin-bottom: 10px;
 }
 .mini-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
   color: var(--muted);
 }
 .field {
@@ -562,7 +562,7 @@ select:disabled {
   margin-top: 4px;
 }
 .section-header > a {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 .page-header {
@@ -1039,7 +1039,7 @@ select:disabled {
   border-radius: 6px;
   padding: 10px 20px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .tabs button.active {
@@ -1074,7 +1074,7 @@ select:disabled {
   border-radius: 9999px;
   padding: 7px 14px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   display: inline-flex;
@@ -1106,7 +1106,7 @@ select:disabled {
   align-items: center;
   justify-content: center;
   padding: 2px 7px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   border-radius: 9999px;
   background: var(--surface-subtle);
@@ -1123,7 +1123,7 @@ select:disabled {
   justify-content: space-between;
   gap: 20px;
   color: var(--primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .exam-grid {
@@ -1169,7 +1169,7 @@ select:disabled {
 }
 .exam-card-title h2 {
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1278,7 +1278,7 @@ select:disabled {
 }
 .detail-chip strong {
   color: var(--text);
-  font-weight: 700;
+  font-weight: 600;
 }
 .detail-chip svg {
   color: var(--muted);
@@ -1305,7 +1305,7 @@ select:disabled {
 }
 .participating-groups h3 {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-secondary);
   margin: 0 0 14px;
 }
@@ -1364,7 +1364,7 @@ select:disabled {
   justify-content: center;
   min-height: 34px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .exam-results-bar {
   margin-top: 32px;
@@ -1379,7 +1379,7 @@ select:disabled {
 }
 .exam-results-bar h3 {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   margin: 0 0 4px;
   color: var(--hero-text);
 }
@@ -1405,7 +1405,7 @@ select:disabled {
 .danger-panel h2 {
   color: var(--danger-text);
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .profile-summary {
   display: flex;
@@ -1595,7 +1595,7 @@ dialog .actions {
   margin-bottom: 18px;
 }
 .variable-list button {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--accent-text);
   background: var(--accent-surface);
   border: 1px solid var(--accent-border);
@@ -1732,10 +1732,10 @@ dialog .actions {
   margin-right: 9px;
 }
 .nav-caption {
-  font-size: 9px;
-  letter-spacing: 1.7px;
+  font-size: 12px;
+  letter-spacing: 0.5px;
   color: var(--muted);
-  font-weight: 700;
+  font-weight: 600;
   margin: 28px 14px 10px;
 }
 .sidebar nav {
@@ -1781,7 +1781,7 @@ dialog .actions {
   color: var(--muted);
   padding: 10px 14px;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   min-height: 42px;
   border: 0;
@@ -1801,7 +1801,7 @@ dialog .actions {
 .sidebar-bottom a.active {
   background: var(--accent-surface);
   color: var(--accent-text);
-  font-weight: 650;
+  font-weight: 600;
 }
 .workspace {
   margin-left: 236px;
@@ -1862,7 +1862,7 @@ dialog .actions {
   place-items: center;
   border-radius: 7px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   flex-shrink: 0;
 }
 .topbar-right {
@@ -1872,7 +1872,7 @@ dialog .actions {
   align-items: center;
 }
 .topbar-right .button {
-  font-size: 12px;
+  font-size: 14px;
 }
 .user-avatar {
   display: grid;
@@ -1896,7 +1896,7 @@ dialog .actions {
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .bottom-nav {
@@ -1947,7 +1947,7 @@ dialog .actions {
   margin: 12px 0 6px;
 }
 .stat small {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .stats-grid.compact {
@@ -1975,7 +1975,7 @@ dialog .actions {
   margin-bottom: 20px;
 }
 .step-title > span {
-  font-size: 10px;
+  font-size: 12px;
   background: var(--accent-surface);
   color: var(--accent-text);
   border-radius: 5px;
@@ -2002,8 +2002,8 @@ dialog .actions {
 }
 .phone-preview > .mini-label {
   text-align: center;
-  font-size: 9px;
-  letter-spacing: 1.4px;
+  font-size: 12px;
+  letter-spacing: 0.5px;
   margin-bottom: 25px;
 }
 .sms-bubble {
@@ -2015,7 +2015,7 @@ dialog .actions {
   margin-bottom: 22px;
 }
 .phone-preview > small {
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.8;
 }
 .compose-aside .notice {
@@ -2025,7 +2025,7 @@ dialog .actions {
   background: transparent;
   border: 0;
   padding: 12px 2px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .message-grid {
   display: grid;
@@ -2050,7 +2050,7 @@ dialog .actions {
   margin-bottom: 14px;
 }
 .message-card small {
-  font-size: 11px;
+  font-size: 12px;
 }
 .preparation {
   text-align: center;
@@ -2119,7 +2119,7 @@ dialog .actions {
   align-items: center;
   gap: 8px;
   color: var(--hero-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .auth-main {
   position: relative;
@@ -2132,7 +2132,7 @@ dialog .actions {
   max-width: 360px;
 }
 .auth-content > .eyebrow {
-  font-size: 9px;
+  font-size: 12px;
   margin-bottom: 12px;
 }
 .auth-content > h1 {
@@ -2158,7 +2158,7 @@ dialog .actions {
   background: none;
   border: 0;
   padding: 6px 0;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--hero-muted);
 }
 .auth-tools {
@@ -2398,7 +2398,7 @@ dialog .actions {
     align-items: center;
     gap: 3px;
     color: var(--muted);
-    font-size: 10px;
+    font-size: 12px;
     min-width: 52px;
     padding: 5px 10px;
     border-radius: 8px;
@@ -2473,7 +2473,7 @@ dialog .actions {
   }
   .page-header > .button {
     padding: 10px 12px;
-    font-size: 12px;
+    font-size: 14px;
   }
   .page-header .muted {
     max-width: 300px;
@@ -2543,21 +2543,21 @@ dialog .actions {
   .center-avatar {
     width: 28px;
     height: 28px;
-    font-size: 11px;
+    font-size: 12px;
     border-radius: 6px;
   }
   .topbar-right {
     gap: 6px;
   }
   .topbar-right .button {
-    font-size: 11px;
+    font-size: 14px;
     padding: 6px 8px;
     min-height: 32px;
   }
   .user-avatar {
     width: 28px;
     height: 28px;
-    font-size: 11px;
+    font-size: 12px;
   }
   .page-header {
     gap: 10px;
@@ -2575,8 +2575,8 @@ dialog .actions {
     letter-spacing: -0.4px;
   }
   .page-header .eyebrow {
-    font-size: 9px;
-    letter-spacing: 1.5px;
+    font-size: 12px;
+    letter-spacing: 0.5px;
     margin-bottom: 2px;
   }
   .page-header .muted {
@@ -2588,7 +2588,7 @@ dialog .actions {
     margin-top: 0;
     min-height: 36px;
     padding: 7px 13px;
-    font-size: 12px;
+    font-size: 14px;
     flex-shrink: 0;
     align-self: flex-end;
   }
@@ -2613,7 +2613,7 @@ dialog .actions {
     width: 100%;
   }
   .stat-top span {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text-secondary);
     line-height: 1.2;
@@ -2653,7 +2653,7 @@ dialog .actions {
     margin: 0;
   }
   .section-header .muted {
-    font-size: 11.5px;
+    font-size: 12px;
     margin-top: 2px;
     line-height: 1.35;
   }
@@ -2666,10 +2666,10 @@ dialog .actions {
   .section-header > .button {
     min-height: 34px;
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 14px;
   }
   .section-header > a:not(.button) {
-    font-size: 12.5px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--primary);
     padding: 2px 0;
@@ -2730,7 +2730,7 @@ dialog .actions {
   }
   .record-row-content .grow small,
   .record-row:not(:has(.record-row-content)):has(> .badge) > .grow small {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--muted);
     display: block;
     margin-top: 2px;
@@ -2744,7 +2744,7 @@ dialog .actions {
     grid-column: 2;
     justify-self: flex-start;
     margin-top: 2px;
-    font-size: 9.5px;
+    font-size: 12px;
     padding: 3px 6px;
   }
   .record-row .danger-icon-btn,
@@ -2768,7 +2768,7 @@ dialog .actions {
   }
   .contact-action-btn {
     padding: 6px 10px;
-    font-size: 11.5px;
+    font-size: 14px;
   }
   .field {
     font-size: 14px;
@@ -2785,13 +2785,13 @@ dialog .actions {
   }
   .group-tabs button {
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 14px;
     min-height: 32px;
     gap: 6px;
   }
   .chip-count {
     padding: 1px 6px;
-    font-size: 10px;
+    font-size: 12px;
   }
   .inline-form,
   .add-participants-form {
@@ -2808,7 +2808,7 @@ dialog .actions {
     margin: 0;
   }
   .add-participants-form .field label {
-    font-size: 11.5px;
+    font-size: 12px;
     margin-bottom: 4px;
     display: block;
   }
@@ -2824,7 +2824,7 @@ dialog .actions {
   .add-participants-form .button {
     min-height: 42px;
     padding: 8px 12px;
-    font-size: 12.5px;
+    font-size: 14px;
     white-space: nowrap;
     width: auto;
   }
@@ -2840,7 +2840,7 @@ dialog .actions {
     width: 100%;
     min-height: 42px;
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: 14px;
     justify-content: center;
     white-space: nowrap;
     box-sizing: border-box;
@@ -2885,7 +2885,7 @@ dialog .actions {
     justify-content: center;
     text-align: center;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: 14px;
   }
   .mark-row {
     grid-template-columns: 22px minmax(0, 1fr) 85px;
@@ -2909,7 +2909,7 @@ dialog .actions {
     min-height: 48px;
   }
   .mark-student small {
-    font-size: 11px;
+    font-size: 12px;
   }
   .mark-row select {
     padding: 10px;
@@ -2937,7 +2937,7 @@ dialog .actions {
     line-height: 1.15;
   }
   .stats-grid.compact .stat span {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--muted);
     line-height: 1.25;
@@ -2964,7 +2964,7 @@ dialog .actions {
     flex-shrink: 0;
     white-space: nowrap;
     padding: 6px 12px;
-    font-size: 11.5px;
+    font-size: 14px;
     min-height: 32px;
     border-radius: 6px;
   }
@@ -2988,7 +2988,7 @@ dialog .actions {
     gap: 4px;
   }
   .balance-content .eyebrow {
-    font-size: 9.5px;
+    font-size: 12px;
     margin-bottom: 2px;
     display: flex;
     align-items: center;
@@ -3005,7 +3005,7 @@ dialog .actions {
     line-height: 1.5;
   }
   .balance-panel small {
-    font-size: 10.5px;
+    font-size: 12px;
     margin-top: 2px;
     line-height: 1.3;
   }
@@ -3017,7 +3017,7 @@ dialog .actions {
     width: 100%;
     min-height: 38px;
     padding: 8px 14px;
-    font-size: 12.5px;
+    font-size: 14px;
     justify-content: center;
   }
   .code-grid {
@@ -3037,7 +3037,7 @@ dialog .actions {
     flex: 1;
     min-width: 0;
     max-width: 68px;
-    font-size: 9.5px;
+    font-size: 12px;
     padding: 5px 2px;
     gap: 2px;
   }
@@ -3058,7 +3058,7 @@ dialog .actions {
     padding: 20px;
   }
   .searchbar .button {
-    font-size: 12px;
+    font-size: 14px;
   }
   .detail-strip {
     display: grid;
@@ -3069,7 +3069,7 @@ dialog .actions {
   }
   .detail-chip {
     padding: 6px 8px;
-    font-size: 11.5px;
+    font-size: 12px;
     justify-content: center;
     text-align: center;
     gap: 5px;
@@ -3377,7 +3377,7 @@ dialog .actions {
 .picker-action-button {
   background: none;
   border: none;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
@@ -3424,5 +3424,5 @@ dialog .actions {
 }
 
 :is(.eyebrow, .nav-caption, .mini-label):lang(bn) {
-  font-size: 11px !important;
+  font-size: 12px !important;
 }
