@@ -29,7 +29,7 @@ test('appearance follows the device, persists overrides, and synchronizes tabs',
   await expect(root).toHaveAttribute('data-theme', 'dark');
   await expect(picker).toHaveAccessibleName('Switch to light mode');
   await expect(root).toHaveCSS('color-scheme', 'dark');
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#101622');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#1f1f1c');
   const other = await page.context().newPage();
   await other.goto('/');
   await other.evaluate(() => localStorage.removeItem('theme'));

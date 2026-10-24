@@ -292,7 +292,6 @@ const bn: Record<string, string> = {
   'SMS balance': 'এসএমএস ব্যালেন্স',
   'Refresh balance': 'ব্যালেন্স হালনাগাদ',
   'Not checked yet': 'এখনো যাচাই করা হয়নি',
-  'Balance is cached, not a reservation.': 'এটি সর্বশেষ জানা ব্যালেন্স; টাকা সংরক্ষিত নয়।',
   'Add group': 'ব্যাচ যোগ করুন',
   Class: 'শ্রেণি',
   Session: 'শিক্ষাবর্ষ',

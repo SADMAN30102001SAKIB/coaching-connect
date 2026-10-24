@@ -231,6 +231,76 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
   return control;
 }
 
+test('warm surfaces and bundled Latin fonts are consistent across shared components', async ({
+  page,
+}, info) => {
+  await fixture(page, ['balance.read']);
+  await page.goto('/groups');
+  await expect(page.locator('.page-content h1')).toHaveText('Groups');
+  await page.evaluate(() => document.fonts.ready);
+  const dark = info.project.use.colorScheme === 'dark';
+  await expect(page.locator('html')).toHaveCSS(
+    'background-color',
+    dark ? 'rgb(31, 31, 28)' : 'rgb(247, 245, 239)',
+  );
+  await expect(page.locator('html')).toHaveCSS(
+    'color',
+    dark ? 'rgb(234, 231, 223)' : 'rgb(41, 40, 34)',
+  );
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  const renderedFont = async (selector: string, family: string) => {
+    const { root } = await cdp.send('DOM.getDocument');
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+    const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
+    expect(
+      fonts
+        .filter((font) => font.isCustomFont && font.glyphCount > 0)
+        .map((font) => font.familyName),
+    ).toContain(family);
+  };
+  await renderedFont('.page-content h1', 'Source Serif 4 Variable');
+  await renderedFont('.page-header .button', 'SourceSans3VF');
+  await page.getByRole('button', { name: 'Add group', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toHaveCSS(
+    'background-color',
+    dark ? 'rgb(41, 41, 37)' : 'rgb(255, 252, 245)',
+  );
+  await dialog.getByRole('textbox').fill('Evening batch');
+  await page.evaluate(() => document.fonts.ready);
+  await renderedFont('dialog h2', 'Source Serif 4 Variable');
+  await page.screenshot({ path: info.outputPath('warm-group-dialog.png'), fullPage: true });
+  const audit = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(audit.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) }))).toEqual(
+    [],
+  );
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  for (const path of ['/', '/students', '/exams/exam-a', '/templates', '/messages/new']) {
+    await page.goto(path);
+    await expect(page.locator('.page-content h1')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: info.outputPath(`warm-${path.replaceAll('/', '-') || 'home'}.png`),
+      fullPage: true,
+    });
+  }
+  await page.getByLabel('Select exams', { exact: true }).click();
+  await expect(page.locator('.picker-dropdown')).toBeVisible();
+  await expect(page.locator('.picker-dropdown')).toHaveCSS(
+    'background-color',
+    dark ? 'rgb(41, 41, 37)' : 'rgb(255, 252, 245)',
+  );
+  await page.screenshot({ path: info.outputPath('warm-picker.png'), fullPage: true });
+  await cdp.detach();
+});
+
 test('auth back actions are separated in reset, setup and activation modes', async ({
   page,
 }, info) => {

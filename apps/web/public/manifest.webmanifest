@@ -3,8 +3,8 @@
   "short_name": "SMS",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#4338ca",
+  "background_color": "#f7f5ef",
+  "theme_color": "#f7f5ef",
   "id": "/",
   "scope": "/",
   "icons": [

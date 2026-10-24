@@ -42,7 +42,6 @@ export function BalanceCard({ autoRefresh = false }: { autoRefresh?: boolean }) 
               Provider estimate: {data.estimate_sms} SMS. Long or Bangla messages may use more.
             </p>
           )}
-          <small>{t('Balance is cached, not a reservation.')}</small>
         </State>
         <Alert error={refresh.error} />
         <Alert
