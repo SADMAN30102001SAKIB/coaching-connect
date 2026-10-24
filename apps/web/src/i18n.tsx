@@ -539,6 +539,9 @@ const bn: Record<string, string> = {
   'exams selected': 'টি পরীক্ষা নির্বাচিত',
   'batches selected': 'টি ব্যাচ নির্বাচিত',
   'All students included (no batch filter)': 'সব শিক্ষার্থী অন্তর্ভুক্ত (কোনো ব্যাচ ফিল্টার নেই)',
+  'All exam participants': 'পরীক্ষার সব অংশগ্রহণকারী',
+  'Leave empty to include all participants in the selected exams.':
+    'নির্বাচিত পরীক্ষার সব অংশগ্রহণকারীকে অন্তর্ভুক্ত করতে খালি রাখুন।',
   'None selected': 'কোনোটি নির্বাচিত নয়',
   selected: 'নির্বাচিত',
   'No matches found': 'কোনো মিল পাওয়া যায়নি',

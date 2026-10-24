@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { Link, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowRight, Clock3, MessageSquareText, Plus, Send, Trash2 } from 'lucide-react';
 import {
@@ -13,7 +14,7 @@ import {
   type Template,
   type TemplateScope,
 } from '@coaching/domain';
-import { useAction, useCenter, useData, useChoices } from '../api';
+import { request, useAction, useCenter, useData, useChoices } from '../api';
 import { useLocale } from '../i18n';
 import {
   Alert,
@@ -163,7 +164,7 @@ function History() {
 function Compose() {
   const [params] = useSearchParams();
   const { t } = useLocale();
-  const { permissions } = useCenter();
+  const { permissions, centerId } = useCenter();
   const navigate = useNavigate();
   const [scope, setScope] = useState<TemplateScope>(
     permissions.includes('results.read') && permissions.includes('exams.read')
@@ -186,7 +187,33 @@ function Compose() {
     '/exams',
     scope !== 'announcement' && permissions.includes('exams.read'),
   );
-  const groups = useChoices<Catalog>('/catalog?kind=group', permissions.includes('groups.read'));
+  const groups = useChoices<Catalog>(
+    '/catalog?kind=group',
+    scope === 'announcement' && permissions.includes('groups.read'),
+  );
+  const examGroups = useQueries({
+    queries: (scope !== 'announcement' && !targetStudent ? selectedExams : []).map((id) => ({
+      queryKey: ['data', centerId, `/exams/${id}`],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        request<{ papers: Paper[]; groups: { id: string; name: string }[] }>(
+          `/c/${centerId}/exams/${id}`,
+          'GET',
+          undefined,
+          signal,
+        ),
+    })),
+  });
+  const groupOptions =
+    scope === 'announcement'
+      ? (groups.data?.items ?? [])
+      : Array.from(
+          new Map(examGroups.flatMap((query) => query.data?.groups ?? []).map((g) => [g.id, g])),
+          ([, group]) => group,
+        ).sort((a, b) => a.name.localeCompare(b.name));
+  const allGroupsLabel =
+    scope === 'announcement'
+      ? t('All students included (no batch filter)')
+      : t('All exam participants');
   const templates = useChoices<Template>('/templates', permissions.includes('templates.read'));
   const firstExam = selectedExams[0];
   const details = useData<{ papers: Paper[] }>(
@@ -262,6 +289,7 @@ function Compose() {
                 onChange={(e) => {
                   const nextScope = e.target.value as TemplateScope;
                   setScope(nextScope);
+                  setSelectedGroups([]);
                   if (nextScope === 'subject') setSelectedExams((all) => all.slice(0, 1));
                   setPaper('');
                   setBody('');
@@ -293,6 +321,7 @@ function Compose() {
                   selected={selectedExams}
                   onChange={(next) => {
                     setSelectedExams(next);
+                    setSelectedGroups([]);
                     setPaper('');
                     setDirty(true);
                   }}
@@ -367,29 +396,43 @@ function Compose() {
                   {t('Only the selected student’s eligible contacts will be included.')}
                 </p>
               ) : (
-                <Field label="Groups" hint="Leave empty to include all eligible students.">
-                  <SearchableSelect
-                    items={groups.data?.items ?? []}
-                    selected={selectedGroups}
-                    onChange={(next) => {
-                      setSelectedGroups(next);
-                      setDirty(true);
-                    }}
-                    single={false}
-                    placeholder={t('Search batches…')}
-                    query={groups}
-                    emptyLabel={t('All students included (no batch filter)')}
-                    summaryFormatter={(chosen) => {
-                      if (chosen.length === 0) return t('All students included (no batch filter)');
-                      if (chosen.length === 1) return chosen[0]?.name ?? '';
-                      const names = chosen
-                        .map((c) => c.name)
-                        .slice(0, 2)
-                        .join(', ');
-                      return `${chosen.length} ${t('batches selected')} (${names}${chosen.length > 2 ? ', …' : ''})`;
-                    }}
-                  />
-                </Field>
+                <>
+                  {examGroups.map((query, index) => (
+                    <State key={selectedExams[index]} query={query} compact>
+                      {null}
+                    </State>
+                  ))}
+                  <Field
+                    label="Groups"
+                    hint={
+                      scope === 'announcement'
+                        ? 'Leave empty to include all eligible students.'
+                        : 'Leave empty to include all participants in the selected exams.'
+                    }
+                  >
+                    <SearchableSelect
+                      items={examGroups.every((query) => query.isSuccess) ? groupOptions : []}
+                      selected={selectedGroups}
+                      onChange={(next) => {
+                        setSelectedGroups(next);
+                        setDirty(true);
+                      }}
+                      single={false}
+                      placeholder={t('Search batches…')}
+                      {...(scope === 'announcement' ? { query: groups } : {})}
+                      emptyLabel={allGroupsLabel}
+                      summaryFormatter={(chosen) => {
+                        if (chosen.length === 0) return allGroupsLabel;
+                        if (chosen.length === 1) return chosen[0]?.name ?? '';
+                        const names = chosen
+                          .map((c) => c.name)
+                          .slice(0, 2)
+                          .join(', ');
+                        return `${chosen.length} ${t('batches selected')} (${names}${chosen.length > 2 ? ', …' : ''})`;
+                      }}
+                    />
+                  </Field>
+                </>
               )}
             </div>
             <p className="muted recipients-note">

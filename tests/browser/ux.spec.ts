@@ -1,6 +1,55 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('result group choices follow selected exams and announcements keep all groups', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  const exams = ['a', 'b'].map((id) => ({
+    id: `exam-${id}`,
+    name: `Exam ${id.toUpperCase()}`,
+    active: 1,
+    papers: [],
+    groups: [{ id: `group-${id}`, name: `Exam group ${id.toUpperCase()}` }],
+  }));
+  await page.route('**/api/c/center-a/exams**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    await route.fulfill({
+      json: path.endsWith('/exams')
+        ? { items: exams, next: null }
+        : exams.find((exam) => path.endsWith(`/${exam.id}`)),
+    });
+  });
+  await page.goto('/messages/new?exam=exam-a');
+  const groups = page.getByLabel('Groups', { exact: true });
+  await expect(groups).toContainText('All exam participants');
+  await groups.click();
+  await expect(page.getByRole('checkbox', { name: 'Exam group A', exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Batch A', exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Exam group A', exact: true }).check();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByLabel('Select exams', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Exam B', exact: true }).check();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(groups).toContainText('All exam participants');
+  await groups.click();
+  await expect(page.getByRole('checkbox', { name: 'Exam group A', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Exam group B', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByLabel('Message type', { exact: true }).selectOption('subject');
+  await groups.click();
+  await expect(page.getByRole('checkbox', { name: 'Exam group A', exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Exam group B', exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Exam group A', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('exam-recipient-groups.png') });
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByLabel('Message type', { exact: true }).selectOption('announcement');
+  await expect(groups).toContainText('All students included');
+  await groups.click();
+  await expect(page.getByRole('checkbox', { name: 'Batch A', exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Exam group A', exact: true })).toHaveCount(0);
+});
+
 test('exam header keeps send results beside edit on narrow screens', async ({ page }, info) => {
   await fixture(page, ['exams.archive', 'exams.update', 'messages.create']);
   await page.setViewportSize({ width: 320, height: 740 });
