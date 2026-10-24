@@ -165,7 +165,11 @@ function Compose() {
   const { t } = useLocale();
   const { permissions } = useCenter();
   const navigate = useNavigate();
-  const [scope, setScope] = useState<TemplateScope>('summary');
+  const [scope, setScope] = useState<TemplateScope>(
+    permissions.includes('results.read') && permissions.includes('exams.read')
+      ? 'summary'
+      : 'announcement',
+  );
   const [body, setBody] = useState('');
   const [selectedExams, setSelectedExams] = useState<string[]>(
     params.get('exam') ? [params.get('exam') ?? ''] : [],
@@ -263,8 +267,22 @@ function Compose() {
                   setBody('');
                 }}
               >
-                <option value="summary">{t('Combined results')}</option>
-                <option value="subject">{t('Subject result')}</option>
+                <option
+                  value="summary"
+                  disabled={
+                    !permissions.includes('results.read') || !permissions.includes('exams.read')
+                  }
+                >
+                  {t('Combined results')}
+                </option>
+                <option
+                  value="subject"
+                  disabled={
+                    !permissions.includes('results.read') || !permissions.includes('exams.read')
+                  }
+                >
+                  {t('Subject result')}
+                </option>
                 <option value="announcement">{t('Announcement')}</option>
               </select>
             </Field>
@@ -462,6 +480,8 @@ function Compose() {
 interface CampaignData extends Campaign {
   selection: unknown;
   scheduled_timezone: string;
+  delivery_checking: number;
+  delivery_unconfirmed: number;
 }
 function CampaignDetail() {
   const { id = '' } = useParams();
@@ -474,7 +494,7 @@ function CampaignDetail() {
       ? 1000
       : data.state === 'scheduled'
         ? 60000
-        : data.submitted > data.delivered + data.failed
+        : data.delivery_checking > 0
           ? 60000
           : false,
   );
@@ -483,7 +503,7 @@ function CampaignDetail() {
     permissions.includes('messages.read_content'),
     campaign.data?.state === 'preparing' || campaign.data?.state === 'processing'
       ? 1000
-      : campaign.data && campaign.data.submitted > campaign.data.delivered + campaign.data.failed
+      : campaign.data && campaign.data.delivery_checking > 0
         ? 60000
         : undefined,
   );
@@ -494,7 +514,14 @@ function CampaignDetail() {
   const refreshMessages = messages.refetch;
   useEffect(() => {
     if (canReadContent && campaignState) void refreshMessages();
-  }, [canReadContent, campaignState, refreshMessages]);
+  }, [
+    canReadContent,
+    campaignState,
+    campaign.data?.delivered,
+    campaign.data?.failed,
+    campaign.data?.delivery_checking,
+    refreshMessages,
+  ]);
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState<'send' | 'retry' | 'delete' | 'cancel' | null>(null);
   const [scheduled, setScheduled] = useState(false);
@@ -550,6 +577,14 @@ function CampaignDetail() {
                 </div>
               ))}
             </div>
+            {item.delivery_unconfirmed > 0 && (
+              <p className="notice">
+                {item.delivery_unconfirmed} ·{' '}
+                {t(
+                  'Accepted · delivery unconfirmed. Automatic checks have ended; these messages will not be resent.',
+                )}
+              </p>
+            )}
             {item.scheduled_at && (
               <p className="notice">
                 {t('Scheduled:')}{' '}
@@ -613,7 +648,14 @@ function CampaignDetail() {
                     </fieldset>
                   )}
                   {scheduled && (
-                    <Field label="Send date and time" hint={`${t('Timezone:')} ${center.timezone}`}>
+                    <Field
+                      label="Send date and time"
+                      hint={
+                        center.timezone === 'Asia/Dhaka'
+                          ? t('Bangladesh time (UTC+6)')
+                          : `${t('Timezone:')} ${center.timezone}`
+                      }
+                    >
                       <input
                         type="datetime-local"
                         value={date}

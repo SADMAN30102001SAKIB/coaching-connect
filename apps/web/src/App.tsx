@@ -36,7 +36,9 @@ import {
 import { AuthScreen } from './auth-screen';
 import { BalanceCard } from './components/BalanceCard';
 import { ThemePicker } from './components/ThemePicker';
-import { PageLoading, PageReady, WorkspaceLoading } from './components/PageLoading';
+import { PageLoading, PageReady, WorkspaceLoading, SessionLoading } from './components/PageLoading';
+import { PlatformLoading } from './components/PlatformFrame';
+import { AccountSettingsPage } from './components/ProfileSettings';
 import { useLocale } from './i18n';
 import {
   Alert,
@@ -44,7 +46,6 @@ import {
   Button,
   ConfirmDialog,
   Empty,
-  Loading,
   Page,
   State,
   dateTime,
@@ -120,7 +121,7 @@ export default function App() {
     void navigate('/', { replace: true });
   };
   if (new URLSearchParams(location.search).has('invite')) return <AuthScreen onDone={complete} />;
-  if (session.isPending && session.fetchStatus !== 'paused') return <WorkspaceLoading />;
+  if (session.isPending && session.fetchStatus !== 'paused') return <SessionLoading />;
   if (session.isPending)
     return (
       <main className="standalone">
@@ -165,7 +166,7 @@ export default function App() {
   )
     return (
       <main className="standalone">
-        <header className="page-header">
+        <header className="page-header account-header">
           <div>
             <p className="eyebrow">COACHING CONNECT</p>
             <h1>
@@ -174,6 +175,15 @@ export default function App() {
           </div>
           <div className="actions">
             <ThemePicker />
+            <Button variant="ghost" onClick={toggle}>
+              {locale === 'en' ? 'বাংলা' : 'English'}
+            </Button>
+            <Link
+              className="button secondary"
+              to={location.pathname === '/settings' ? '/' : '/settings'}
+            >
+              {t(location.pathname === '/settings' ? 'Home' : 'Settings')}
+            </Link>
             <Button
               variant="secondary"
               onClick={() => {
@@ -185,8 +195,10 @@ export default function App() {
           </div>
         </header>
         <Alert error={accountError} />
-        {user.platform && !centerId ? (
-          <Suspense fallback={<Loading />}>
+        {location.pathname === '/settings' && !centerId ? (
+          <AccountSettingsPage />
+        ) : user.platform && !centerId ? (
+          <Suspense fallback={<PlatformLoading />}>
             <Platform />
           </Suspense>
         ) : centerId ? (
@@ -228,7 +240,7 @@ export default function App() {
     ...(access.admin
       ? [{ path: '/staff', label: 'Staff & roles', permission: null, icon: ShieldCheck }]
       : []),
-    { path: '/settings', label: 'Settings', permission: 'provider.manage', icon: Settings },
+    { path: '/settings', label: 'Settings', permission: null, icon: Settings },
   ];
   return (
     <CenterContext.Provider key={centerId} value={{ ...access, centerId }}>
@@ -468,7 +480,7 @@ function HomePage({ name }: { name: string }) {
     campaigns: Campaign[];
   }>('/home');
   return (
-    <Page eyebrow="Overview" title={`${t('Welcome back')}, ${name.split(' ')[0] ?? name}`}>
+    <Page eyebrow="Overview" title={`${t('Welcome back')}, ${name}`}>
       <State query={home}>
         <BalanceCard autoRefresh />
         <div className="stats-grid">

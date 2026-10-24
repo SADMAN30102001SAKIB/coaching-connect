@@ -606,8 +606,11 @@ records.delete('/roles/:id', async (c) => {
   assert(role, 'NOT_FOUND', 'This role is unavailable.', 404);
   const assigned = await one<{ count: number }>(
     c.env.DB,
-    'SELECT COUNT(*) AS count FROM member_roles WHERE center_id=? AND role_id=?',
+    'SELECT (SELECT COUNT(*) FROM member_roles WHERE center_id=? AND role_id=?)+(SELECT COUNT(*) FROM invitations i,json_each(i.role_ids) r WHERE i.center_id=? AND i.expires_at>? AND r.value=?) AS count',
     a.center.id,
+    id,
+    a.center.id,
+    now(),
     id,
   );
   assert(
@@ -623,8 +626,11 @@ records.get('/staff', async (c) => {
   const a = requireAdmin(c);
   const items = await rows(
     c.env.DB,
-    "SELECT u.id,u.name,u.phone,m.active,COALESCE((SELECT json_group_array(mr.role_id) FROM member_roles mr JOIN roles r ON r.center_id=mr.center_id AND r.id=mr.role_id AND r.active=1 WHERE mr.center_id=m.center_id AND mr.user_id=m.user_id),'[]') AS role_ids FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.center_id=? AND m.user_id>? ORDER BY m.user_id LIMIT 51",
+    "SELECT u.id,u.name,u.phone,COALESCE(m.active,0) AS active,m.user_id IS NULL AS pending,COALESCE((SELECT json_group_array(mr.role_id) FROM member_roles mr JOIN roles r ON r.center_id=mr.center_id AND r.id=mr.role_id AND r.active=1 WHERE mr.center_id=? AND mr.user_id=u.id),'[]') AS role_ids FROM users u LEFT JOIN memberships m ON m.user_id=u.id AND m.center_id=? WHERE (m.user_id IS NOT NULL OR EXISTS(SELECT 1 FROM invitations i WHERE i.user_id=u.id AND i.center_id=? AND i.expires_at>?)) AND u.id>? ORDER BY u.id LIMIT 51",
     a.center.id,
+    a.center.id,
+    a.center.id,
+    now(),
     c.req.query('cursor') ?? '',
   );
   const more = items.length > 50;
@@ -648,18 +654,9 @@ async function checkRoles(c: ApiContext, roles: string[]) {
 }
 records.post('/staff/invite', async (c) => {
   const a = requireAdmin(c);
-  const input = z
-    .object({ phone: phoneSchema, name: nameSchema, role_ids: idList })
-    .parse(await c.req.json());
+  const input = z.object({ phone: phoneSchema, role_ids: idList }).parse(await c.req.json());
   await checkRoles(c, input.role_ids);
-  const token = await invite(
-    c.env.DB,
-    a.center.id,
-    a.user.id,
-    input.phone,
-    input.name,
-    input.role_ids,
-  );
+  const token = await invite(c.env.DB, a.center.id, a.user.id, input.phone, input.role_ids);
   return c.json({ token }, 201);
 });
 records.put('/staff/:id', async (c) => {
@@ -707,6 +704,59 @@ records.put('/staff/:id', async (c) => {
       ),
     ),
   ]);
+  return c.json({ ok: true });
+});
+records.delete('/staff/:id', async (c) => {
+  const a = requireAdmin(c);
+  requireRecent(c);
+  const id = z.uuid().parse(c.req.param('id'));
+  assert(
+    id !== a.center.owner_id,
+    'OWNER_PROTECTED',
+    'Transfer center ownership before removing the admin.',
+    409,
+  );
+  assert(
+    await one(
+      c.env.DB,
+      'SELECT id FROM users WHERE id=? AND (EXISTS(SELECT 1 FROM memberships WHERE center_id=? AND user_id=users.id) OR EXISTS(SELECT 1 FROM invitations WHERE center_id=? AND user_id=users.id))',
+      id,
+      a.center.id,
+      a.center.id,
+    ),
+    'NOT_FOUND',
+    'This staff account is unavailable.',
+    404,
+  );
+  const result = await c.env.DB.batch([
+    statement(
+      c.env.DB,
+      'DELETE FROM invitations WHERE center_id=? AND user_id=? AND user_id!=(SELECT owner_id FROM centers WHERE id=?)',
+      a.center.id,
+      id,
+      a.center.id,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM member_roles WHERE center_id=? AND user_id=? AND user_id!=(SELECT owner_id FROM centers WHERE id=?)',
+      a.center.id,
+      id,
+      a.center.id,
+    ),
+    statement(
+      c.env.DB,
+      'DELETE FROM memberships WHERE center_id=? AND user_id=? AND user_id!=(SELECT owner_id FROM centers WHERE id=?)',
+      a.center.id,
+      id,
+      a.center.id,
+    ),
+  ]);
+  assert(
+    result.some((entry) => entry.meta.changes),
+    'OWNER_PROTECTED',
+    'The admin membership cannot be removed.',
+    409,
+  );
   return c.json({ ok: true });
 });
 records.post('/ownership', async (c) => {

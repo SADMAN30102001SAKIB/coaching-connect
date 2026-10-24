@@ -17,14 +17,20 @@ const examInput = z.object({
 });
 exams.get('/', async (c) => {
   const a = requirePermission(c, 'exams.read');
+  const status = z
+    .enum(['active', 'inactive', 'all'])
+    .default('active')
+    .parse(c.req.query('status'));
   const cursor = c.req.query('cursor');
   const [before, after] = cursor
     ? z.tuple([z.string(), z.uuid()]).parse(JSON.parse(cursor))
     : ['9999-99-99', ''];
   const items = await rows<Exam>(
     c.env.DB,
-    'SELECT * FROM exams WHERE center_id=? AND active=1 AND (exam_date<? OR (exam_date=? AND id>?)) ORDER BY exam_date DESC,id LIMIT 51',
+    "SELECT * FROM exams WHERE center_id=? AND (?='all' OR active=?) AND (exam_date<? OR (exam_date=? AND id>?)) ORDER BY exam_date DESC,id LIMIT 51",
     a.center.id,
+    status,
+    status === 'inactive' ? 0 : 1,
     before,
     before,
     after,

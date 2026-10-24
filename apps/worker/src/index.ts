@@ -2,7 +2,7 @@ import { Hono, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
-import { localeSchema, nameSchema, phoneSchema } from '@coaching/domain';
+import { nameSchema, phoneSchema } from '@coaching/domain';
 import { auth, invite } from './auth';
 import { campaigns, dispatch, processJob, scheduled } from './campaigns';
 import { now, one, rows, statement, uid } from './db';
@@ -109,16 +109,9 @@ app.post('/api/platform/centers', async (c) => {
   const input = z
     .object({
       name: nameSchema,
-      admin_name: nameSchema,
       phone: phoneSchema,
-      timezone: z.string().max(80).default('Asia/Dhaka'),
     })
     .parse(await c.req.json());
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: input.timezone });
-  } catch {
-    throw new AppError('TIMEZONE_INVALID', 'Choose a valid timezone.', 422);
-  }
   let owner = await one<{ id: string }>(
     c.env.DB,
     'SELECT id FROM users WHERE phone=?',
@@ -130,7 +123,7 @@ app.post('/api/platform/centers', async (c) => {
       c.env.DB,
       'INSERT INTO users(id,name,phone,created_at) VALUES(?,?,?,?)',
       id,
-      input.admin_name,
+      '',
       input.phone,
       now(),
     ).run();
@@ -143,9 +136,9 @@ app.post('/api/platform/centers', async (c) => {
     id,
     input.name,
     owner.id,
-    input.timezone,
+    'Asia/Dhaka',
   ).run();
-  const token = await invite(c.env.DB, id, c.get('user').id, input.phone, input.admin_name, []);
+  const token = await invite(c.env.DB, id, c.get('user').id, input.phone, []);
   return c.json({ id, token }, 201);
 });
 app.patch('/api/platform/centers/:id', async (c) => {
@@ -267,22 +260,13 @@ centerApi.patch('/settings', async (c) => {
   const input = z
     .object({
       name: nameSchema,
-      timezone: z.string().max(80),
-      locale: localeSchema,
       late_minutes: z.number().int().min(1).max(1440),
     })
     .parse(await c.req.json());
-  try {
-    new Intl.DateTimeFormat('en', { timeZone: input.timezone });
-  } catch {
-    throw new AppError('TIMEZONE_INVALID', 'Choose a valid timezone.', 422);
-  }
   await statement(
     c.env.DB,
-    'UPDATE centers SET name=?,timezone=?,locale=?,late_minutes=?,revision=revision+1 WHERE id=?',
+    'UPDATE centers SET name=?,late_minutes=?,revision=revision+1 WHERE id=?',
     input.name,
-    input.timezone,
-    input.locale,
     input.late_minutes,
     a.center.id,
   ).run();

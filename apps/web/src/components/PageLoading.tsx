@@ -1,6 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useIsFetching, useQueryClient, type Query } from '@tanstack/react-query';
 import { Loading } from '../ui';
+import { LoaderCircle } from 'lucide-react';
+import { useLocale } from '../i18n';
+
+export function SessionLoading() {
+  const { t } = useLocale();
+  return (
+    <div className="session-loading" role="status" aria-label={t('Loading…')}>
+      <LoaderCircle className="spin" size={24} aria-hidden="true" />
+      <span>{t('Loading…')}</span>
+    </div>
+  );
+}
 
 const initialRead = (query: Query) =>
   query.state.data === undefined && query.state.status === 'pending';

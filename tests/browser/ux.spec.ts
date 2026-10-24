@@ -9,6 +9,16 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
     malformedSession: false,
     authenticated: true,
     platform: false,
+    admin: true,
+    displayName: 'Audit Teacher',
+    staff: [] as {
+      id: string;
+      name: string;
+      phone: string;
+      active: number;
+      pending: number;
+      role_ids: string;
+    }[],
     noCenters: false,
     invitationExisting: 0,
     deletedCenters: [] as string[],
@@ -79,6 +89,11 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (req.method() !== 'GET') {
       control.writes.push({ path, body: req.postDataJSON() as unknown });
+      if (path === '/api/auth/profile')
+        control.displayName = (req.postDataJSON() as { name: string }).name;
+      if (path.endsWith('/staff/invite')) return json({ token: 'a'.repeat(64) });
+      if (req.method() === 'DELETE' && path.includes('/staff/'))
+        control.staff = control.staff.filter((person) => !path.endsWith(`/${person.id}`));
       if (path === '/api/auth/login') control.authenticated = true;
       if (path === '/api/auth/bootstrap') {
         control.authenticated = true;
@@ -137,7 +152,7 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
           body: '<html>Temporary upstream failure</html>',
         });
       return json({
-        user: { id: 'owner', name: 'Audit Teacher', platform: Number(control.platform) },
+        user: { id: 'owner', name: control.displayName, platform: Number(control.platform) },
         centers: control.noCenters ? [] : [center],
       });
     }
@@ -164,7 +179,8 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
             ? null
             : 'center-a',
       });
-    if (path.endsWith('/context')) return json({ center, admin: true, permissions });
+    if (path.endsWith('/context')) return json({ center, admin: control.admin, permissions });
+    if (path.endsWith('/staff')) return json({ items: control.staff, next: null });
     if (path.endsWith('/home')) return json({ students: 2, groups: 1, exams: 1, campaigns: [] });
     if (path.endsWith('/catalog'))
       return json({
@@ -230,6 +246,262 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
   });
   return control;
 }
+
+test('inactive exams are discoverable, filterable and reactivated without losing URL state', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  const exams = [
+    {
+      id: 'inactive-a',
+      name: 'Inactive fixture exam',
+      exam_date: '2026-10-24',
+      active: 0,
+      version: 1,
+    },
+    { id: 'active-a', name: 'Active fixture exam', exam_date: '2026-10-23', active: 1, version: 1 },
+  ];
+  await page.route('**/api/c/center-a/exams?*', async (route) => {
+    const status = new URL(route.request().url()).searchParams.get('status');
+    await route.fulfill({
+      json: {
+        items: exams.filter(
+          (exam) => status === 'all' || exam.active === (status === 'inactive' ? 0 : 1),
+        ),
+        next: null,
+      },
+    });
+  });
+  await page.route('**/api/c/center-a/exams/inactive-a', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      const exam = exams.find((item) => item.id === 'inactive-a');
+      if (!exam) throw new Error('Missing fixture exam');
+      exam.active = 1;
+      exam.version = 2;
+      return route.fallback();
+    }
+    await route.fulfill({ json: { ...exams[0], papers: [], participants: 0, groups: [] } });
+  });
+  await page.goto('/exams');
+  const filters = page.getByRole('group', { name: 'Exam status', exact: true });
+  await expect(filters.getByRole('button', { name: 'All exams', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(
+    page.getByRole('heading', { name: 'Inactive fixture exam', exact: true }),
+  ).toBeVisible();
+  await filters.getByRole('button', { name: 'Inactive', exact: true }).click();
+  await expect(page).toHaveURL(/status=inactive/);
+  await expect(page.getByRole('heading', { name: 'Active fixture exam', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('link', { name: /Inactive fixture exam/ }).click();
+  await page.goBack();
+  await expect(filters.getByRole('button', { name: 'Inactive', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.getByRole('button', { name: 'Reactivate Inactive fixture exam', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'No inactive exams', exact: true })).toBeVisible();
+  expect(control.writes.at(-1)?.body).toMatchObject({
+    active: true,
+    version: 1,
+    name: 'Inactive fixture exam',
+  });
+  await filters.getByRole('button', { name: 'Active', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Inactive fixture exam', exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('exam-status-filters.png'), fullPage: true });
+});
+
+test('staff can edit their own profile without seeing center administration or redundant preferences', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  control.admin = false;
+  await page.goto('/settings');
+  await expect(page.getByLabel('Display name', { exact: true })).toHaveValue('Audit Teacher');
+  await expect(page.getByLabel('Center name', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Language', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Timezone', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Display name', { exact: true }).fill('My chosen full name');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await expect(page.getByText('Your name has been updated.', { exact: true })).toBeVisible();
+  await expect(page.locator('.user-avatar')).toHaveAttribute('title', 'My chosen full name');
+  expect(control.writes.find((write) => write.path === '/api/auth/profile')?.body).toEqual({
+    name: 'My chosen full name',
+  });
+  await page.goto('/');
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back, My chosen full name', exact: true }),
+  ).toBeVisible();
+  await page.goto('/settings');
+  await expect(page.getByLabel('Display name')).toHaveValue('My chosen full name');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('personal-settings.png'), fullPage: true });
+});
+
+test('staff invitations have one self-owned name and center-scoped removal with readable roles', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  control.staff = [
+    {
+      id: 'staff-a',
+      name: 'Chosen teacher name',
+      phone: '88017000000011',
+      active: 1,
+      pending: 0,
+      role_ids: '[]',
+    },
+    { id: 'staff-b', name: '', phone: '88017000000012', active: 0, pending: 1, role_ids: '[]' },
+  ];
+  await page.goto('/staff');
+  await expect(page.getByText('Invited', { exact: false }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Invite', exact: true }).click();
+  const invite = page.getByRole('dialog', { name: 'Invite staff', exact: true });
+  await expect(invite.getByLabel('Name', { exact: true })).toHaveCount(0);
+  await invite.getByLabel('Phone number', { exact: true }).fill('01700000013');
+  await invite.getByRole('button', { name: 'Invite staff', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Invitation link', exact: true })).toBeVisible();
+  const sent = control.writes.find((write) => write.path.endsWith('/staff/invite'));
+  expect(sent?.body).toEqual({ phone: '01700000013', role_ids: [] });
+  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Remove from center Chosen teacher name', exact: true })
+    .click();
+  const removal = page.getByRole('dialog', { name: 'Remove from center', exact: true });
+  await expect(removal).toContainText('historical records are kept');
+  await removal.getByRole('button', { name: 'Remove from center', exact: true }).click();
+  await expect(page.getByText('Chosen teacher name', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Create role', exact: true }).click();
+  const role = page.getByRole('dialog', { name: 'Create role', exact: true });
+  await expect(role.getByText('Academic', { exact: true })).toHaveCount(0);
+  await expect(role.getByText('Sending & sensitive actions', { exact: true })).toHaveCount(0);
+  await role
+    .getByRole('group', { name: 'Marks & results', exact: true })
+    .getByLabel('Update', { exact: true })
+    .check();
+  await expect(
+    role.getByRole('group', { name: 'Exams', exact: true }).getByLabel('Read', { exact: true }),
+  ).toBeChecked();
+  await expect(
+    role
+      .getByRole('group', { name: 'Marks & results', exact: true })
+      .getByLabel('Read', { exact: true }),
+  ).toBeChecked();
+  await role
+    .getByRole('group', { name: 'Exams', exact: true })
+    .getByLabel('Read', { exact: true })
+    .uncheck();
+  await expect(
+    role
+      .getByRole('group', { name: 'Marks & results', exact: true })
+      .getByLabel('Update', { exact: true }),
+  ).not.toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('role-editor.png'), fullPage: true });
+});
+
+test('platform reload never flashes a coaching sidebar and center creation omits admin name and timezone', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  control.platform = true;
+  control.noCenters = true;
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/auth/session', async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  await page.goto('/');
+  await expect(page.locator('.session-loading')).toBeVisible();
+  await expect(page.locator('.sidebar')).toHaveCount(0);
+  release();
+  await expect(page.getByRole('heading', { name: 'Coaching centers', exact: true })).toBeVisible();
+  await expect(page.locator('.sidebar')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Create center', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Create center', exact: true });
+  await expect(form.getByLabel('Admin name', { exact: true })).toHaveCount(0);
+  await expect(form.getByLabel('Timezone', { exact: true })).toHaveCount(0);
+  await expect(form.getByLabel('Center name', { exact: true })).toBeVisible();
+  await expect(form.getByLabel('Phone number', { exact: true })).toBeVisible();
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page.getByLabel('Display name', { exact: true })).toBeVisible();
+  if (info.project.use.isMobile) {
+    const heading = await page.locator('.account-header h1').boundingBox();
+    if (!heading) throw new Error('Missing account heading');
+    expect(heading.width).toBeGreaterThan(250);
+  }
+  await page.screenshot({ path: info.outputPath('platform-settings.png'), fullPage: true });
+});
+
+test('expired delivery checks stop dashboard polling and final delivery counters refresh message badges', async ({
+  page,
+}) => {
+  await fixture(page, ['messages.read_content']);
+  let checking = 1;
+  let delivered = 0;
+  let reads = 0;
+  const campaign = () => ({
+    id: 'campaign-a',
+    name: 'Delivery fixture',
+    state: 'completed',
+    total: 1,
+    submitted: 1,
+    delivered,
+    failed: 0,
+    unknown: 0,
+    skipped: 0,
+    excluded: 0,
+    delivery_checking: checking,
+    delivery_unconfirmed: checking || delivered ? 0 : 1,
+  });
+  await page.route('**/api/c/center-a/campaigns/campaign-a', async (route) => {
+    reads++;
+    await route.fulfill({ json: campaign() });
+  });
+  await page.route('**/api/c/center-a/campaigns/campaign-a/messages?*', async (route) => {
+    await route.fulfill({
+      json: {
+        items: [
+          {
+            id: 'message-a',
+            student_name: 'Teacher fixture',
+            phone: '8801700000011',
+            body: 'Fixture message',
+            segments: 1,
+            state: delivered ? 'delivered' : 'accepted',
+          },
+        ],
+        next: null,
+      },
+    });
+  });
+  await page.clock.install();
+  await page.goto('/messages/campaign-a');
+  await expect(page.getByRole('heading', { name: 'Delivery fixture' })).toBeVisible();
+  checking = 0;
+  await page.clock.fastForward(61000);
+  await expect(page.getByText(/Automatic checks have ended/)).toBeVisible();
+  const stopped = reads;
+  await page.clock.fastForward(180000);
+  expect(reads).toBe(stopped);
+  checking = 1;
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Delivery fixture' })).toBeVisible();
+  checking = 0;
+  delivered = 1;
+  await page.clock.fastForward(61000);
+  await expect(page.locator('.message-card .badge')).toHaveText('Delivered');
+});
 
 test('warm surfaces and bundled Latin fonts are consistent across shared components', async ({
   page,
@@ -429,7 +701,7 @@ test('recovery controls are spaced, downloadable and retain the saved acknowledg
   await page.screenshot({ path: info.outputPath('recovery-actions.png'), fullPage: true });
   await next.click();
   await expect(
-    page.getByRole('heading', { name: 'Welcome back, Audit', exact: true }),
+    page.getByRole('heading', { name: 'Welcome back, Audit Teacher', exact: true }),
   ).toBeVisible();
 });
 
@@ -596,7 +868,7 @@ test('message review offers clear timing choices and still requires final approv
     review.getByRole('button', { name: 'Schedule messages', exact: true }),
   ).toBeDisabled();
   await review.getByLabel('Send date and time', { exact: true }).fill('2030-01-02T10:30');
-  await expect(review).toContainText('Asia/Dhaka');
+  await expect(review).toContainText('Bangladesh time (UTC+6)');
   if (!info.project.use.isMobile) {
     const radioBox = await review.locator('.choice').first().boundingBox();
     const inputBox = await review.getByLabel('Send date and time', { exact: true }).boundingBox();
@@ -886,14 +1158,14 @@ test('reload keeps one loading frame across session, context and page requests',
     await page.route('**/api/**', handler);
     try {
       await page.goto(path);
-      await expect(page.locator('.workspace-loading')).toBeVisible();
-      const initial = await page.locator('.page-loading').boundingBox();
+      await expect(page.locator('.session-loading')).toBeVisible();
+      await expect(page.locator('.sidebar')).toHaveCount(0);
       if (path === '/staff') await page.screenshot({ path: info.outputPath('startup.png') });
       session.release();
       await expect.poll(() => contextRequested).toBe(true);
       await expect(page.locator('.workspace-loading')).toBeVisible();
+      const initial = await page.locator('.page-loading').boundingBox();
       await expect(page.getByRole('heading', { name: /Welcome back/ })).not.toBeVisible();
-      expect(await page.locator('.page-loading').boundingBox()).toEqual(initial);
       context.release();
       await expect(page.locator('.workspace-loading')).toHaveCount(0);
       if (!['/security', '/settings'].includes(path)) {
@@ -1438,7 +1710,7 @@ test('page visits revalidate and malformed session responses offer recovery inst
   const count = control.reads.filter((path) => path.endsWith('/exams')).length;
   await page.getByRole('link', { name: 'Home', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Welcome back, Audit', exact: true }),
+    page.getByRole('heading', { name: 'Welcome back, Audit Teacher', exact: true }),
   ).toBeVisible();
   await page.getByRole('link', { name: 'Exams', exact: true }).click();
   await expect
@@ -1493,7 +1765,7 @@ test('sign-in, sign-out and password validation preserve a working session obser
   await page.getByLabel('Password', { exact: true }).fill('local fixture password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Welcome back, Audit', exact: true }),
+    page.getByRole('heading', { name: 'Welcome back, Audit Teacher', exact: true }),
   ).toBeVisible();
   await page.goto('/security');
   await page.getByLabel('Current password', { exact: true }).fill('wrong password');
@@ -1508,7 +1780,7 @@ test('sign-in, sign-out and password validation preserve a working session obser
   await page.getByLabel('Password', { exact: true }).fill('local fixture password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Welcome back, Audit', exact: true }),
+    page.getByRole('heading', { name: 'Welcome back, Audit Teacher', exact: true }),
   ).toBeVisible();
 });
 
@@ -1538,7 +1810,7 @@ test('reconnecting during account setup does not hide unacknowledged recovery co
   await page.getByLabel('I saved my codes', { exact: true }).check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Welcome back, Audit', exact: true }),
+    page.getByRole('heading', { name: 'Welcome back, Audit Teacher', exact: true }),
   ).toBeVisible();
 });
 

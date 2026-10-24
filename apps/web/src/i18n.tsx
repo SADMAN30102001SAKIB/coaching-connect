@@ -1,6 +1,43 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const bn: Record<string, string> = {
+  'Exam status': 'পরীক্ষার অবস্থা',
+  'All exams': 'সব পরীক্ষা',
+  Inactive: 'নিষ্ক্রিয়',
+  Reactivate: 'আবার সক্রিয় করুন',
+  'View exam': 'পরীক্ষা দেখুন',
+  'No inactive exams': 'কোনো নিষ্ক্রিয় পরীক্ষা নেই',
+  'No active exams': 'কোনো সক্রিয় পরীক্ষা নেই',
+  'No exams yet': 'এখনো কোনো পরীক্ষা নেই',
+  'Create your first exam to get started.': 'শুরু করতে আপনার প্রথম পরীক্ষা তৈরি করুন।',
+  'Try another status filter to see your exams.': 'পরীক্ষা দেখতে অন্য অবস্থার ফিল্টার বেছে নিন।',
+  'Your profile': 'আপনার প্রোফাইল',
+  'Display name': 'প্রদর্শিত নাম',
+  'Save name': 'নাম সংরক্ষণ করুন',
+  'Your name has been updated.': 'আপনার নাম হালনাগাদ হয়েছে।',
+  'Your name is shared across your coaching centers. Only you can change it.':
+    'আপনার সব কোচিং সেন্টারে একই নাম ব্যবহৃত হয়। শুধু আপনিই এটি পরিবর্তন করতে পারবেন।',
+  'Awaiting activation': 'অ্যাকাউন্ট চালুর অপেক্ষায়',
+  Invited: 'আমন্ত্রিত',
+  'Revoke invitation': 'আমন্ত্রণ বাতিল করুন',
+  'Remove from center': 'সেন্টার থেকে সরান',
+  'Remove this person’s access and outstanding invitations to this center? Their account, other centers, and historical records are kept.':
+    'এই সেন্টারে এই ব্যক্তির প্রবেশাধিকার ও অব্যবহৃত আমন্ত্রণ সরাবেন? তাঁর অ্যাকাউন্ট, অন্য সেন্টার এবং আগের রেকর্ড রাখা হবে।',
+  'Center settings': 'সেন্টারের সেটিংস',
+  'Marks & results': 'নম্বর ও ফলাফল',
+  'View campaigns': 'বার্তার কার্যক্রম দেখুন',
+  'Create drafts': 'খসড়া তৈরি করুন',
+  'Cancel or delete campaigns': 'বার্তার কার্যক্রম বাতিল বা মুছুন',
+  'Retry selected messages': 'নির্বাচিত বার্তা আবার পাঠান',
+  'View message content': 'বার্তার বিষয়বস্তু দেখুন',
+  'Manage SMS account': 'এসএমএস অ্যাকাউন্ট পরিচালনা করুন',
+  'Required viewing permissions are selected automatically. Removing one also removes actions that depend on it.':
+    'প্রয়োজনীয় দেখার অনুমতি স্বয়ংক্রিয়ভাবে নির্বাচিত হয়। সেটি সরালে তার ওপর নির্ভরশীল কাজের অনুমতিও সরে যাবে।',
+  'Staff, roles, ownership and center settings are managed only by the coaching admin.':
+    'শুধু কোচিং অ্যাডমিন কর্মী, ভূমিকা, মালিকানা ও সেন্টারের সেটিংস পরিচালনা করেন।',
+  'Bangladesh time (UTC+6)': 'বাংলাদেশ সময় (UTC+৬)',
+  'Accepted · delivery unconfirmed. Automatic checks have ended; these messages will not be resent.':
+    'গৃহীত · পৌঁছানো নিশ্চিত নয়। স্বয়ংক্রিয় যাচাই শেষ হয়েছে; এই বার্তাগুলো আবার পাঠানো হবে না।',
   'Delete center': 'কোচিং সেন্টার মুছুন',
   'Center ID': 'সেন্টারের আইডি',
   'This coaching center is unavailable.': 'এই কোচিং সেন্টারটি পাওয়া যাচ্ছে না।',

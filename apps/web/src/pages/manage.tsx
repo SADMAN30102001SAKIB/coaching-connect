@@ -2,9 +2,9 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Copy, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 import {
-  actions,
   features,
   permissions as permissionCatalog,
+  requiredPermissions,
   variables,
   type Catalog,
   type Page as Paged,
@@ -17,6 +17,7 @@ import {
 import { formText, useAction, useCenter, useData, useChoices } from '../api';
 import { useLocale } from '../i18n';
 import { BalanceCard } from '../components/BalanceCard';
+import { ProfileSettings } from '../components/ProfileSettings';
 import {
   Alert,
   Button,
@@ -503,6 +504,7 @@ interface StaffMember {
   name: string;
   phone: string;
   active: number;
+  pending: number;
   role_ids: string;
 }
 function Staff() {
@@ -515,6 +517,7 @@ function Staff() {
   const [role, setRole] = useState<Role | 'new' | null>(null);
   const [deletingRole, setDeletingRole] = useState<Role | null>(null);
   const [member, setMember] = useState<StaffMember | 'new' | null>(null);
+  const [removing, setRemoving] = useState<StaffMember | null>(null);
   const [token, setToken] = useState('');
   const [transfer, setTransfer] = useState(false);
   if (!admin) return <Alert>{t('Only your center admin can manage staff and roles.')}</Alert>;
@@ -542,26 +545,42 @@ function Staff() {
           <h2>{t('Staff & roles')}</h2>
           {staff.data?.items.map((person) => (
             <div className="record-row" key={person.id}>
-              <span className="initial-avatar">{person.name.slice(0, 1)}</span>
+              <span className="initial-avatar">{person.name.slice(0, 1) || '?'}</span>
               <div className="grow">
-                <strong>{person.name}</strong>
+                <strong>{person.name || t('Awaiting activation')}</strong>
                 <small>
-                  {person.phone} · {person.active ? t('Active') : t('Suspended')}
+                  {person.phone} ·{' '}
+                  {person.pending ? t('Invited') : person.active ? t('Active') : t('Suspended')}
                 </small>
               </div>
               {person.id === center.owner_id ? (
                 <span className="badge accepted">{t('Admin')}</span>
               ) : (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    action.reset();
-                    update.reset();
-                    setMember(person);
-                  }}
-                >
-                  {t('Edit')}
-                </Button>
+                <div className="actions">
+                  {!person.pending && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        action.reset();
+                        update.reset();
+                        setMember(person);
+                      }}
+                    >
+                      {t('Edit')}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    className="danger-icon-btn"
+                    aria-label={`${t(person.pending ? 'Revoke invitation' : 'Remove from center')} ${person.name || person.phone}`}
+                    onClick={() => {
+                      update.reset();
+                      setRemoving(person);
+                    }}
+                  >
+                    <Trash2 size={17} />
+                  </Button>
+                </div>
               )}
             </div>
           ))}
@@ -646,7 +665,7 @@ function Staff() {
                 action.mutate(
                   {
                     path: '/staff/invite',
-                    body: { name: f.get('name'), phone: f.get('phone'), role_ids },
+                    body: { phone: f.get('phone'), role_ids },
                   },
                   {
                     onSuccess: (result) => {
@@ -668,9 +687,6 @@ function Staff() {
           >
             {member === 'new' && (
               <>
-                <Field label="Name">
-                  <input name="name" required />
-                </Field>
                 <Field label="Phone number">
                   <input type="tel" name="phone" required />
                 </Field>
@@ -706,6 +722,39 @@ function Staff() {
             </div>
           </form>
         )}
+      </Dialog>
+      <Dialog
+        title={removing?.pending ? 'Revoke invitation' : 'Remove from center'}
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+      >
+        <p>
+          {t(
+            'Remove this person’s access and outstanding invitations to this center? Their account, other centers, and historical records are kept.',
+          )}
+        </p>
+        <p>
+          <strong>{removing?.name || removing?.phone}</strong>
+        </p>
+        <Alert error={update.error} />
+        <div className="actions">
+          <Button variant="secondary" onClick={() => setRemoving(null)}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            variant="danger"
+            busy={update.isPending}
+            onClick={() => {
+              if (removing)
+                update.mutate(
+                  { path: `/staff/${removing.id}`, method: 'DELETE' },
+                  { onSuccess: () => setRemoving(null) },
+                );
+            }}
+          >
+            {t(removing?.pending ? 'Revoke invitation' : 'Remove from center')}
+          </Button>
+        </div>
       </Dialog>
       <Dialog
         title={role === 'new' ? 'Create role' : 'Edit'}
@@ -826,7 +875,25 @@ function RoleEditor({
   const action = useAction();
   const { t } = useLocale();
   const grant = (permission: string, checked: boolean) =>
-    setGrants((all) => (checked ? [...all, permission] : all.filter((p) => p !== permission)));
+    setGrants((all) =>
+      checked
+        ? [...new Set([...all, permission, ...requiredPermissions(permission)])]
+        : all.filter((p) => p !== permission && !requiredPermissions(p).includes(permission)),
+    );
+  const labels: Record<string, string> = {
+    academic: 'Subjects',
+    results: 'Marks & results',
+    balance: 'SMS balance',
+    'messages.read': 'View campaigns',
+    'messages.create': 'Create drafts',
+    'messages.send': 'Send messages',
+    'messages.schedule': 'Schedule messages',
+    'messages.cancel': 'Cancel or delete campaigns',
+    'messages.retry': 'Retry selected messages',
+    'messages.read_content': 'View message content',
+    'balance.refresh': 'Refresh balance',
+    'provider.manage': 'Manage SMS account',
+  };
   return (
     <form
       key={initial?.version ?? 'new'}
@@ -852,43 +919,46 @@ function RoleEditor({
         <input name="name" defaultValue={initial?.name} required />
       </Field>
       <div className="permission-matrix">
-        {features.map((feature) => (
+        <p className="muted">
+          {t(
+            'Required viewing permissions are selected automatically. Removing one also removes actions that depend on it.',
+          )}
+        </p>
+        {([...features, 'provider'] as const).map((feature) => (
           <fieldset key={feature}>
-            <legend>{t(feature.charAt(0).toUpperCase() + feature.slice(1))}</legend>
+            <legend>
+              {t(
+                feature === 'provider'
+                  ? 'SMS account'
+                  : (labels[feature] ?? feature.charAt(0).toUpperCase() + feature.slice(1)),
+              )}
+            </legend>
             <div className="permission-actions">
-              {actions.map((actionName) => {
-                const permission = `${feature}.${actionName}`;
-                return permissionCatalog.includes(permission) ? (
-                  <label className="check" key={permission}>
-                    <input
-                      type="checkbox"
-                      checked={grants.includes(permission)}
-                      onChange={(e) => grant(permission, e.target.checked)}
-                    />
-                    {actionName === 'archive'
-                      ? t('Delete')
-                      : t(actionName.charAt(0).toUpperCase() + actionName.slice(1))}
-                  </label>
-                ) : null;
-              })}
+              {permissionCatalog
+                .filter((permission) => permission.startsWith(`${feature}.`))
+                .map((permission) => {
+                  const actionName = permission.split('.')[1] ?? '';
+                  return (
+                    <label className="check" key={permission}>
+                      <input
+                        type="checkbox"
+                        checked={grants.includes(permission)}
+                        onChange={(e) => grant(permission, e.target.checked)}
+                      />
+                      {labels[permission]
+                        ? t(labels[permission])
+                        : actionName === 'archive'
+                          ? t('Delete')
+                          : t(actionName.charAt(0).toUpperCase() + actionName.slice(1))}
+                    </label>
+                  );
+                })}
             </div>
           </fieldset>
         ))}
-        <fieldset>
-          <legend>{t('Sending & sensitive actions')}</legend>
-          {permissionCatalog
-            .filter((p) => !actions.some((a) => p.endsWith(`.${a}`)))
-            .map((permission) => (
-              <label className="check" key={permission}>
-                <input
-                  type="checkbox"
-                  checked={grants.includes(permission)}
-                  onChange={(e) => grant(permission, e.target.checked)}
-                />
-                {permission.replaceAll('.', ' · ').replaceAll('_', ' ')}
-              </label>
-            ))}
-        </fieldset>
+        <p className="muted">
+          {t('Staff, roles, ownership and center settings are managed only by the coaching admin.')}
+        </p>
       </div>
       <Alert error={action.error} />
       <div className="actions">
@@ -932,8 +1002,9 @@ function SettingsPage() {
   const { center: incoming, admin, permissions } = useCenter();
   const [centerDirty, setCenterDirty] = useState(false);
   const [providerDirty, setProviderDirty] = useState(false);
+  const [profileDirty, setProfileDirty] = useState(false);
   const center = useDraftSnapshot(incoming, centerDirty);
-  const unsaved = useUnsaved(centerDirty || providerDirty);
+  const unsaved = useUnsaved(centerDirty || providerDirty || profileDirty);
   const { t } = useLocale();
   const provider = useData<ProviderSettings>('/provider', permissions.includes('provider.manage'));
   const action = useAction();
@@ -941,6 +1012,7 @@ function SettingsPage() {
   return (
     <Page eyebrow="YOUR WORKSPACE, YOUR WAY" title="Settings">
       {unsaved.prompt}
+      <ProfileSettings onDirtyChange={setProfileDirty} />
       <Alert error={action.error} />
       {admin && (
         <form
@@ -956,8 +1028,6 @@ function SettingsPage() {
                 method: 'PATCH',
                 body: {
                   name: f.get('name'),
-                  timezone: f.get('timezone'),
-                  locale: f.get('locale'),
                   late_minutes: Number(f.get('late')),
                 },
               },
@@ -965,19 +1035,11 @@ function SettingsPage() {
             );
           }}
         >
-          <h2>{t('Center name')}</h2>
+          <h2>{t('Center settings')}</h2>
           <div className="form-grid">
             <Field label="Center name">
               <input name="name" defaultValue={center.name} required />
             </Field>
-            <Field label="Timezone">
-              <input name="timezone" defaultValue={center.timezone} required list="timezones" />
-            </Field>
-            <datalist id="timezones">
-              {Intl.supportedValuesOf('timeZone').map((tz) => (
-                <option key={tz}>{tz}</option>
-              ))}
-            </datalist>
             <Field label="Late-send window (minutes)">
               <input
                 name="late"
@@ -987,12 +1049,6 @@ function SettingsPage() {
                 defaultValue={center.late_minutes}
                 required
               />
-            </Field>
-            <Field label="Language">
-              <select name="locale" defaultValue={center.locale}>
-                <option value="en">English</option>
-                <option value="bn">বাংলা</option>
-              </select>
             </Field>
           </div>
           <div className="actions">

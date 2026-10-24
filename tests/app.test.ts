@@ -9,6 +9,8 @@ import {
   renderTemplate,
   toScore,
   zonedTimestamp,
+  requiredPermissions,
+  permissions,
 } from '@coaching/domain';
 import { app } from '../apps/worker/src/index';
 import { digest, hashPassword, secret, type Bindings } from '../apps/worker/src/security';
@@ -955,6 +957,159 @@ describe('isolation and permissions', () => {
     ).rejects.toThrow();
   });
 });
+describe('inactive exam discovery and reactivation', () => {
+  it('filters management lists without exposing inactive exams in default selectors', async () => {
+    const center = uid();
+    const active = uid();
+    const inactive = uid();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        "INSERT INTO centers(id,name,owner_id) VALUES(?,'Exam filter fixture',?)",
+        center,
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+      statement(
+        env.DB,
+        "INSERT INTO exams(id,center_id,name,exam_date,active) VALUES(?,?,'Active fixture','2026-10-24',1)",
+        active,
+        center,
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO exams(id,center_id,name,exam_date,active) VALUES(?,?,'Inactive fixture','2026-10-24',0)",
+        inactive,
+        center,
+      ),
+    ]);
+    const ids = (response: Awaited<ReturnType<typeof call>>) =>
+      z
+        .array(z.object({ id: z.string() }))
+        .parse(response.body['items'])
+        .map((item) => item.id);
+    expect(ids(await call(`/c/${center}/exams`))).toEqual([active]);
+    expect(ids(await call(`/c/${center}/exams?status=active`))).toEqual([active]);
+    expect(ids(await call(`/c/${center}/exams?status=inactive`))).toEqual([inactive]);
+    expect(ids(await call(`/c/${center}/exams?status=all`)).sort()).toEqual(
+      [active, inactive].sort(),
+    );
+    expect((await call(`/c/${center}/exams?status=unsupported`)).status).toBe(422);
+    expect((await call(`/c/${center}/home`)).body['exams']).toBe(1);
+    expect(
+      (
+        await call(`/c/${center}/exams/${inactive}`, 'PATCH', {
+          name: 'Inactive fixture',
+          exam_date: '2026-10-24',
+          version: 1,
+          active: true,
+        })
+      ).status,
+    ).toBe(200);
+    expect(ids(await call(`/c/${center}/exams?status=inactive`))).toEqual([]);
+    expect((await call(`/c/${center}/home`)).body['exams']).toBe(2);
+    expect(
+      (
+        await call(`/c/${center}/exams/${inactive}`, 'PATCH', {
+          name: 'Stale name',
+          exam_date: '2026-10-24',
+          version: 1,
+          active: true,
+        })
+      ).status,
+    ).toBe(409);
+  });
+  it('preserves pagination and center isolation for inactive exam browsing', async () => {
+    const center = uid();
+    const ids = Array.from({ length: 53 }, () => uid()).sort();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        "INSERT INTO centers(id,name,owner_id) VALUES(?,'Inactive pagination',?)",
+        center,
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+      ...ids.map((id) =>
+        statement(
+          env.DB,
+          "INSERT INTO exams(id,center_id,name,exam_date,active) VALUES(?,?,'Inactive page','2026-10-24',0)",
+          id,
+          center,
+        ),
+      ),
+    ]);
+    const first = await call(`/c/${center}/exams?status=inactive`);
+    const next = z.string().parse(first.body['next']);
+    const second = await call(
+      `/c/${center}/exams?status=inactive&cursor=${encodeURIComponent(next)}`,
+    );
+    const result = z
+      .array(z.object({ id: z.string() }))
+      .parse([...(first.body['items'] as unknown[]), ...(second.body['items'] as unknown[])]);
+    expect(result.map((item) => item.id)).toEqual(ids);
+    expect(second.body['next']).toBeNull();
+  });
+  it('requires update permission to reactivate an inactive exam', async () => {
+    const center = uid(),
+      user = uid(),
+      role = uid(),
+      exam = uid(),
+      token = secret();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        "INSERT INTO centers(id,name,owner_id) VALUES(?,'Read only exam fixture',?)",
+        center,
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+      statement(
+        env.DB,
+        "INSERT INTO users(id,name,phone,created_at) VALUES(?,'Exam reader','8801700000815',?)",
+        user,
+        now(),
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, user),
+      statement(
+        env.DB,
+        `INSERT INTO roles(id,center_id,name,permissions) VALUES(?,?,'Exam reader','["exams.read"]')`,
+        role,
+        center,
+      ),
+      statement(env.DB, 'INSERT INTO member_roles VALUES(?,?,?)', center, user, role),
+      statement(
+        env.DB,
+        'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+        await digest(token),
+        user,
+        now() + 600000,
+        now(),
+      ),
+      statement(
+        env.DB,
+        "INSERT INTO exams(id,center_id,name,exam_date,active) VALUES(?,?,'Protected inactive','2026-10-24',0)",
+        exam,
+        center,
+      ),
+    ]);
+    const session = `coaching_session=${token}`;
+    expect(
+      (await call(`/c/${center}/exams?status=inactive`, 'GET', undefined, session)).status,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          `/c/${center}/exams/${exam}`,
+          'PATCH',
+          { name: 'Protected inactive', exam_date: '2026-10-24', version: 1, active: true },
+          session,
+        )
+      ).status,
+    ).toBe(403);
+  });
+});
+
 describe('academic records and sending', () => {
   let student = '';
   let subject = '';
@@ -1223,6 +1378,240 @@ describe('academic records and sending', () => {
     expect((await call(`/c/${centerId}/campaigns/${delCampaignId}`)).status).toBe(200);
     expect((await call(`/c/${centerId}/campaigns/${delCampaignId}`, 'DELETE')).status).toBe(200);
     expect((await call(`/c/${centerId}/campaigns/${delCampaignId}`)).status).toBe(404);
+  });
+});
+
+describe('personal profiles and center membership', () => {
+  it('lets any signed-in user edit only their own name', async () => {
+    const token = secret();
+    const session = `coaching_session=${token}`;
+    await statement(
+      env.DB,
+      'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+      await digest(token),
+      otherId,
+      now() + 600000,
+      now(),
+    ).run();
+    const before = await one(env.DB, 'SELECT name FROM users WHERE id=?', userId);
+    expect(
+      (
+        await call(
+          '/auth/profile',
+          'PATCH',
+          { name: '  My own chosen name  ', user_id: userId },
+          session,
+        )
+      ).status,
+    ).toBe(200);
+    expect(await one(env.DB, 'SELECT name FROM users WHERE id=?', otherId)).toEqual({
+      name: 'My own chosen name',
+    });
+    expect(await one(env.DB, 'SELECT name FROM users WHERE id=?', userId)).toEqual(before);
+    expect(
+      z
+        .object({ name: z.string() })
+        .parse((await call('/auth/session', 'GET', undefined, session)).body['user']).name,
+    ).toBe('My own chosen name');
+    expect((await call('/auth/profile', 'PATCH', { name: '   ' }, session)).status).toBe(422);
+    expect((await call('/auth/profile', 'PATCH', { name: 'x'.repeat(161) }, session)).status).toBe(
+      422,
+    );
+    expect((await call('/auth/profile', 'PATCH', { name: 'Unauthorized' }, '')).status).toBe(401);
+  });
+  it('creates centers without admin names or timezone configuration and preserves existing identities', async () => {
+    const created = await call('/platform/centers', 'POST', {
+      name: 'Simple onboarding',
+      phone: '01700000801',
+    });
+    expect(created.status).toBe(201);
+    const center = z.string().parse(created.body['id']);
+    expect(await one(env.DB, 'SELECT timezone FROM centers WHERE id=?', center)).toEqual({
+      timezone: 'Asia/Dhaka',
+    });
+    expect(await one(env.DB, 'SELECT name FROM users WHERE phone=?', '8801700000801')).toEqual({
+      name: '',
+    });
+    const token = created.body['token'];
+    expect(
+      (
+        await call(
+          '/auth/activate',
+          'POST',
+          { token, password: 'a sufficiently long password 801' },
+          '',
+        )
+      ).status,
+    ).toBe(422);
+    expect(
+      (
+        await call(
+          '/auth/activate',
+          'POST',
+          { token, name: 'Self chosen name', password: 'a sufficiently long password 801' },
+          '',
+        )
+      ).status,
+    ).toBe(200);
+    const existing = await call('/platform/centers', 'POST', {
+      name: 'Another workspace',
+      phone: '01700000801',
+      admin_name: 'Do not overwrite',
+      timezone: 'Europe/London',
+    });
+    expect(existing.status).toBe(201);
+    expect(await one(env.DB, 'SELECT name FROM users WHERE phone=?', '8801700000801')).toEqual({
+      name: 'Self chosen name',
+    });
+    expect(
+      await one(env.DB, 'SELECT timezone FROM centers WHERE id=?', existing.body['id']),
+    ).toEqual({ timezone: 'Asia/Dhaka' });
+    const login = await call(
+      '/auth/login',
+      'POST',
+      { phone: '01700000801', password: 'a sufficiently long password 801' },
+      '',
+    );
+    const session = login.headers.get('set-cookie')?.split(';')[0] ?? '';
+    expect(
+      (await call('/auth/activate', 'POST', { token: existing.body['token'] }, session)).status,
+    ).toBe(200);
+    expect(await one(env.DB, 'SELECT name FROM users WHERE phone=?', '8801700000801')).toEqual({
+      name: 'Self chosen name',
+    });
+  });
+  it('preserves stored timezone and locale when saving simplified center settings', async () => {
+    const center = uid();
+    await env.DB.batch([
+      statement(
+        env.DB,
+        "INSERT INTO centers(id,name,owner_id,timezone,locale) VALUES(?,'Settings fixture',?,'Europe/London','bn')",
+        center,
+        userId,
+      ),
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', center, userId),
+    ]);
+    expect(
+      (await call(`/c/${center}/settings`, 'PATCH', { name: 'Renamed center', late_minutes: 20 }))
+        .status,
+    ).toBe(200);
+    expect(
+      await one(env.DB, 'SELECT name,timezone,locale,late_minutes FROM centers WHERE id=?', center),
+    ).toEqual({
+      name: 'Renamed center',
+      timezone: 'Europe/London',
+      locale: 'bn',
+      late_minutes: 20,
+    });
+  });
+  it('lists and revokes pending invitations without deleting the account', async () => {
+    const role = await call(`/c/${centerId}/roles`, 'POST', {
+      name: 'Invited reader',
+      permissions: ['students.read'],
+    });
+    const roleId = z.string().parse(role.body['id']);
+    const invited = await call(`/c/${centerId}/staff/invite`, 'POST', {
+      phone: '01700000802',
+      role_ids: [role.body['id']],
+    });
+    expect(invited.status).toBe(201);
+    const person = await one<{ id: string }>(
+      env.DB,
+      'SELECT id FROM users WHERE phone=?',
+      '8801700000802',
+    );
+    if (!person) throw new Error('Expected an invited account');
+    const listed = (await call(`/c/${centerId}/staff`)).body['items'];
+    expect(
+      z
+        .array(z.object({ id: z.string(), pending: z.number() }))
+        .parse(listed)
+        .find((item) => item.id === person.id)?.pending,
+    ).toBe(1);
+    expect((await call(`/c/${centerId}/roles/${roleId}`, 'DELETE')).status).toBe(422);
+    expect((await call(`/c/${centerId}/staff/${person.id}`, 'DELETE')).status).toBe(200);
+    expect(await one(env.DB, 'SELECT id FROM users WHERE id=?', person.id)).not.toBeNull();
+    expect(
+      (
+        await call(
+          '/auth/activate',
+          'POST',
+          {
+            token: invited.body['token'],
+            name: 'Too late',
+            password: 'a sufficiently long password 802',
+          },
+          '',
+        )
+      ).status,
+    ).toBe(409);
+    expect((await call(`/c/${centerId}/roles/${roleId}`, 'DELETE')).status).toBe(200);
+  });
+  it('removes staff access only in the requested center and protects the admin', async () => {
+    const role = await call(`/c/${centerId}/roles`, 'POST', {
+      name: 'Removed reader',
+      permissions: ['students.read'],
+    });
+    await env.DB.batch([
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', centerId, otherId),
+      statement(
+        env.DB,
+        'INSERT INTO member_roles VALUES(?,?,?)',
+        centerId,
+        otherId,
+        role.body['id'],
+      ),
+    ]);
+    const token = secret();
+    const session = `coaching_session=${token}`;
+    await statement(
+      env.DB,
+      'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+      await digest(token),
+      otherId,
+      now() + 600000,
+      now(),
+    ).run();
+    expect((await call(`/c/${centerId}/staff/${userId}`, 'DELETE', {}, session)).status).toBe(403);
+    expect(
+      (
+        await call(
+          `/c/${centerId}/settings`,
+          'PATCH',
+          { name: 'Not allowed', late_minutes: 20 },
+          session,
+        )
+      ).status,
+    ).toBe(403);
+    expect((await call(`/c/${centerId}/staff/${userId}`, 'DELETE')).status).toBe(409);
+    expect((await call(`/c/${otherCenter}/staff/${otherId}`, 'DELETE')).status).toBe(403);
+    expect((await call(`/c/${centerId}/staff/${otherId}`, 'DELETE')).status).toBe(200);
+    expect((await call(`/c/${centerId}/students`, 'GET', undefined, session)).status).toBe(403);
+    expect((await call(`/c/${otherCenter}/students`, 'GET', undefined, session)).status).toBe(200);
+    expect((await call('/auth/session', 'GET', undefined, session)).status).toBe(200);
+    expect(
+      await one(
+        env.DB,
+        'SELECT role_id FROM member_roles WHERE center_id=? AND user_id=?',
+        centerId,
+        otherId,
+      ),
+    ).toBeNull();
+  });
+  it('declares valid permission dependencies without granting SMS secrets or sending implicitly', () => {
+    for (const permission of permissions) {
+      expect(
+        requiredPermissions(permission).every((dependency) => permissions.includes(dependency)),
+      ).toBe(true);
+      expect(requiredPermissions(permission)).not.toContain(permission);
+    }
+    expect(requiredPermissions('results.update').sort()).toEqual(['exams.read', 'results.read']);
+    expect(requiredPermissions('messages.retry').sort()).toEqual([
+      'messages.read',
+      'messages.read_content',
+    ]);
+    expect(requiredPermissions('provider.manage')).toEqual([]);
+    expect(requiredPermissions('messages.create')).toEqual(['messages.read']);
   });
 });
 
@@ -2098,6 +2487,44 @@ describe('sending recovery races', () => {
       ),
     ]);
   }
+  it('ends automatic delivery checks after 24 hours and exposes that state to the dashboard', async () => {
+    const { id, center } = await ready(1, 1);
+    const { network } = intercept();
+    await step(id);
+    network.mockRestore();
+    const message = await one<{ id: string; provider_id: string }>(
+      env.DB,
+      'SELECT id,provider_id FROM messages WHERE campaign_id=?',
+      id,
+    );
+    if (!message) throw new Error('Expected a prepared message');
+    await statement(
+      env.DB,
+      'UPDATE messages SET submitted_at=?,next_check_at=? WHERE id=?',
+      now() - 86400001,
+      now() - 1,
+      message.id,
+    ).run();
+    const checks = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        ErrorCode: 0,
+        Data: { MessageId: message.provider_id, Status: 'Request success', ErrorCode: '9000' },
+      }),
+    );
+    try {
+      const expired = await call(`/c/${center}/campaigns/${id}`);
+      expect(expired.body['delivery_checking']).toBe(0);
+      expect(expired.body['delivery_unconfirmed']).toBe(1);
+      await checkMessage(sending, message.id);
+      await checkMessage(sending, message.id);
+      expect(checks).toHaveBeenCalledTimes(1);
+      expect(
+        await one(env.DB, 'SELECT state,next_check_at FROM messages WHERE id=?', message.id),
+      ).toEqual({ state: 'accepted', next_check_at: null });
+    } finally {
+      checks.mockRestore();
+    }
+  });
   it('persists live-format receipts and reconciles delivery without resending', async () => {
     const { id } = await ready(3, 100);
     const receipts = new Map<string, string>();

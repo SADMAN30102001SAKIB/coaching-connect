@@ -36,6 +36,19 @@ export const permissions = [
 export const permissionSchema = z
   .string()
   .refine((value) => permissions.includes(value), 'Unknown permission');
+export function requiredPermissions(permission: string): string[] {
+  const [feature, action] = permission.split('.');
+  const required = new Set<string>();
+  if (feature && action !== 'read' && permissions.includes(`${feature}.read`))
+    required.add(`${feature}.read`);
+  if (feature === 'results') required.add('exams.read');
+  if (permission === 'exams.create') required.add('academic.read');
+  if (permission === 'messages.retry') required.add('messages.read_content');
+  for (const dependency of [...required]) {
+    for (const nested of requiredPermissions(dependency)) required.add(nested);
+  }
+  return [...required];
+}
 export const nameSchema = z.string().trim().min(1).max(160);
 export const passwordSchema = z.string().min(15, 'Use at least 15 characters').max(128);
 export const localeSchema = z.enum(['en', 'bn']);

@@ -1640,7 +1640,7 @@ dialog .actions {
   padding: 12px;
 }
 .permission-matrix legend {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   padding: 0 6px;
 }
@@ -1650,10 +1650,8 @@ dialog .actions {
   gap: 8px 18px;
 }
 .permission-actions .check {
-  font-size: 12px;
-}
-.permission-matrix > fieldset:last-child .check {
-  font-size: 12px;
+  font-size: 14px;
+  min-height: 32px;
 }
 .balance-panel {
   display: flex;
@@ -3397,6 +3395,26 @@ dialog .actions {
 
 .picker-action-button.primary:hover {
   background: var(--primary-hover);
+}
+
+.session-loading {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted);
+}
+
+@media (max-width: 700px) {
+  .account-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .account-header .actions {
+    align-self: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 /* Bangla joins and vowel marks must not inherit Latin display tracking. */

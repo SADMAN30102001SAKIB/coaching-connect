@@ -103,6 +103,12 @@ auth.get('/auth/session', async (c) => {
   );
   return c.json({ user, centers });
 });
+auth.patch('/auth/profile', async (c) => {
+  const user = await userFrom(c);
+  const input = z.object({ name: nameSchema }).parse(await c.req.json());
+  await statement(c.env.DB, 'UPDATE users SET name=? WHERE id=?', input.name, user.id).run();
+  return c.json({ ok: true });
+});
 auth.get('/auth/invitation', async (c) => {
   const token = z.string().length(64).parse(c.req.query('token'));
   const invitation = await one<{ name: string; existing: number }>(
@@ -121,7 +127,11 @@ auth.get('/auth/invitation', async (c) => {
 });
 auth.post('/auth/activate', async (c) => {
   const input = z
-    .object({ token: z.string().length(64), name: nameSchema, password: passwordSchema.optional() })
+    .object({
+      token: z.string().length(64),
+      name: nameSchema.optional(),
+      password: passwordSchema.optional(),
+    })
     .parse(await c.req.json());
   const tokenHash = await digest(input.token);
   const invitation = await one<{
@@ -194,7 +204,7 @@ auth.post('/auth/activate', async (c) => {
         c.env.DB,
         `UPDATE users SET password=?,name=? WHERE id=? AND password IS NULL AND ${condition}`,
         hash,
-        input.name,
+        nameSchema.parse(input.name),
         invitation.user_id,
         tokenHash,
         now(),
@@ -293,7 +303,6 @@ export async function invite(
   center: string,
   creator: string,
   phone: string,
-  name: string,
   roles: string[],
 ): Promise<string> {
   let user = await one<{ id: string }>(db, 'SELECT id FROM users WHERE phone=?', phone);
@@ -303,7 +312,7 @@ export async function invite(
       db,
       'INSERT INTO users(id,name,phone,created_at) VALUES(?,?,?,?) ON CONFLICT(phone) DO NOTHING',
       id,
-      name,
+      '',
       phone,
       now(),
     ).run();

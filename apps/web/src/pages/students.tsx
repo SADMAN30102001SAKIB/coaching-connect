@@ -442,8 +442,8 @@ function StudentForm({ initial: incoming }: { initial?: Detail }) {
     setGroups(initial?.groups.map((g) => g.group_id) ?? []);
   }
   const unsaved = useUnsaved(dirty);
-  const available = useChoices<Catalog>('/catalog?kind=group');
   const { permissions } = useCenter();
+  const available = useChoices<Catalog>('/catalog?kind=group', permissions.includes('groups.read'));
   const { t } = useLocale();
   const action = useAction();
   const navigate = useNavigate();

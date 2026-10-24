@@ -77,7 +77,7 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
         if (invitation.data?.existing) await request('/auth/login', 'POST', { phone, password });
         return request<{ recovery_codes: string[] }>('/auth/activate', 'POST', {
           token,
-          name,
+          ...(invitation.data?.existing ? {} : { name }),
           ...(invitation.data?.existing ? {} : { password }),
         });
       }
@@ -188,7 +188,8 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
                   className="form-fields"
                   disabled={mutation.isPending || (mode === 'activate' && !invitation.data)}
                 >
-                  {(mode === 'bootstrap' || mode === 'activate') && (
+                  {(mode === 'bootstrap' ||
+                    (mode === 'activate' && !invitation.data?.existing)) && (
                     <Field label="Your name">
                       <input name="name" autoComplete="name" required maxLength={160} />
                     </Field>
@@ -222,7 +223,9 @@ export function AuthScreen({ onDone }: { onDone: () => void }) {
                   )}
                   <Field
                     label={
-                      mode === 'recover' || mode === 'activate' || mode === 'bootstrap'
+                      mode === 'recover' ||
+                      (mode === 'activate' && !invitation.data?.existing) ||
+                      mode === 'bootstrap'
                         ? 'New password'
                         : 'Password'
                     }

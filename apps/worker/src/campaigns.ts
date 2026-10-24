@@ -164,9 +164,13 @@ campaigns.get('/', async (c) => {
 });
 campaigns.get('/:id', async (c) => {
   const a = requirePermission(c, 'messages.read');
-  const item = await one<StoredCampaign>(
+  const item = await one<
+    StoredCampaign & { delivery_checking: number; delivery_unconfirmed: number }
+  >(
     c.env.DB,
-    "SELECT * FROM campaigns WHERE center_id=? AND id=? AND state!='purging'",
+    "SELECT c.*,(SELECT COUNT(*) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id AND m.state='accepted' AND m.next_check_at IS NOT NULL AND m.submitted_at>?) AS delivery_checking,(SELECT COUNT(*) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id AND m.state='accepted' AND (m.next_check_at IS NULL OR m.submitted_at<=?)) AS delivery_unconfirmed FROM campaigns c WHERE c.center_id=? AND c.id=? AND c.state!='purging'",
+    now() - 86400000,
+    now() - 86400000,
     a.center.id,
     c.req.param('id'),
   );

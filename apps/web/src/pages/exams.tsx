@@ -46,8 +46,11 @@ interface ExamDetailData extends Exam {
 function ExamList() {
   const { params, update } = useListParams();
   const cursor = params.get('cursor') ?? '';
+  const status = ['active', 'inactive', 'all'].includes(params.get('status') ?? '')
+    ? (params.get('status') ?? 'all')
+    : 'all';
   const [deletingExam, setDeletingExam] = useState<Exam | null>(null);
-  const list = useData<Paged<Exam>>(`/exams?cursor=${encodeURIComponent(cursor)}`);
+  const list = useData<Paged<Exam>>(`/exams?status=${status}&cursor=${encodeURIComponent(cursor)}`);
   const action = useAction();
   const { permissions } = useCenter();
   const { t } = useLocale();
@@ -64,6 +67,20 @@ function ExamList() {
         )
       }
     >
+      <div className="group-tabs" role="group" aria-label={t('Exam status')}>
+        {(['all', 'active', 'inactive'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={status === value ? 'active' : ''}
+            aria-pressed={status === value}
+            onClick={() => update({ status: value, cursor: '' })}
+          >
+            {t(value === 'all' ? 'All exams' : value === 'active' ? 'Active' : 'Inactive')}
+          </button>
+        ))}
+      </div>
+      <Alert error={action.error} />
       <State query={list}>
         {list.data?.items.length ? (
           <div className="exam-grid">
@@ -93,14 +110,51 @@ function ExamList() {
                   </div>
                 </div>
                 <h2>{exam.name}</h2>
+                {!exam.active && <span className="badge paused">{t('Inactive')}</span>}
+                {!exam.active && permissions.includes('exams.update') && (
+                  <Button
+                    variant="secondary"
+                    busy={action.isPending}
+                    aria-label={`${t('Reactivate')} ${exam.name}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      action.mutate({
+                        path: `/exams/${exam.id}`,
+                        method: 'PATCH',
+                        body: {
+                          name: exam.name,
+                          exam_date: exam.exam_date,
+                          version: exam.version,
+                          active: true,
+                        },
+                      });
+                    }}
+                  >
+                    {t('Reactivate')}
+                  </Button>
+                )}
                 <span className="text-link">
-                  {t('Enter marks')} <span>→</span>
+                  {t('View exam')} <span>→</span>
                 </span>
               </Link>
             ))}
           </div>
         ) : (
-          <Empty />
+          <Empty
+            title={
+              status === 'inactive'
+                ? 'No inactive exams'
+                : status === 'active'
+                  ? 'No active exams'
+                  : 'No exams yet'
+            }
+            description={
+              status === 'all'
+                ? 'Create your first exam to get started.'
+                : 'Try another status filter to see your exams.'
+            }
+          />
         )}
         <NextPage next={list.data?.next} onNext={(cursor) => update({ cursor })} />
       </State>
@@ -151,7 +205,11 @@ function ExamList() {
   );
 }
 function CreateExam() {
-  const subjects = useChoices<Catalog>('/catalog?kind=subject');
+  const { permissions } = useCenter();
+  const subjects = useChoices<Catalog>(
+    '/catalog?kind=subject',
+    permissions.includes('academic.read'),
+  );
   const action = useAction();
   const navigate = useNavigate();
   const { t } = useLocale();
@@ -294,11 +352,11 @@ function CreateExam() {
 function ExamDetail() {
   const { id = '' } = useParams();
   const exam = useData<ExamDetailData>(`/exams/${id}`);
-  const groups = useChoices<Catalog>('/catalog?kind=group');
+  const { permissions } = useCenter();
+  const groups = useChoices<Catalog>('/catalog?kind=group', permissions.includes('groups.read'));
   const action = useAction();
   const removeAction = useAction();
   const navigate = useNavigate();
-  const { permissions } = useCenter();
   const { t } = useLocale();
   const [editing, setEditing] = useState(false);
   const [confirmDeleteExam, setConfirmDeleteExam] = useState(false);
@@ -656,6 +714,7 @@ function ExamEditor({
   const initial = useDraftSnapshot(incoming, dirty);
   const action = useAction();
   const { t } = useLocale();
+  const { permissions } = useCenter();
   return (
     <form
       key={initial.version}
@@ -671,7 +730,10 @@ function ExamEditor({
               name: form.get('name'),
               exam_date: form.get('date'),
               version: initial.version,
-              active: form.get('active') === 'on',
+              active:
+                initial.active && !permissions.includes('exams.archive')
+                  ? true
+                  : form.get('active') === 'on',
             },
           },
           { onSuccess: onDone },
@@ -685,7 +747,12 @@ function ExamEditor({
         <input name="date" type="date" defaultValue={initial.exam_date} required />
       </Field>
       <label className="check">
-        <input name="active" type="checkbox" defaultChecked={Boolean(initial.active)} />
+        <input
+          name="active"
+          type="checkbox"
+          defaultChecked={Boolean(initial.active)}
+          disabled={Boolean(initial.active) && !permissions.includes('exams.archive')}
+        />
         {t('Active')}
       </label>
       <Alert error={action.error} />
