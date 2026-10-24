@@ -14,7 +14,7 @@ export interface ProviderConfig {
 export type Submission =
   | { state: 'accepted'; id: string }
   | { state: 'failed' | 'unknown' | 'low_balance'; reason: string };
-export const base = 'https://sms.ocs-api.top/api/sandbox/';
+export const base = 'https://sms.ocs-api.top/api/';
 const object = z.record(z.string(), z.unknown());
 function scalar(value: unknown): string {
   return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
