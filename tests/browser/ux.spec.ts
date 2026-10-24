@@ -763,9 +763,9 @@ test('missing SMS estimates stay unavailable while a genuine zero remains visibl
     const panel = page.locator('.balance-panel');
     if (value === null || value === undefined) {
       await expect(panel).toContainText('Provider estimate unavailable.');
-      await expect(panel).not.toContainText('Provider estimate: 0 SMS.');
+      await expect(panel).not.toContainText('Estimate: 0 SMS.');
     } else {
-      await expect(panel).toContainText(`Provider estimate: ${value} SMS.`);
+      await expect(panel).toContainText(`Estimate: ${value} SMS.`);
       await expect(panel).not.toContainText('Provider estimate unavailable.');
     }
   }

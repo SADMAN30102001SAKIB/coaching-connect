@@ -41,7 +41,7 @@ export function BalanceCard({ autoRefresh = false }: { autoRefresh?: boolean }) 
             <p className="muted">{t('Provider estimate unavailable.')}</p>
           ) : (
             <p className="muted">
-              Provider estimate: {data.estimate_sms} SMS. Long or Bangla messages may use more.
+              Estimate: {data.estimate_sms} SMS. Long or Bangla messages may use more.
             </p>
           )}
         </State>
