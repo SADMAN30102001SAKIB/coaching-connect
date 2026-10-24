@@ -292,6 +292,7 @@ const bn: Record<string, string> = {
   'SMS balance': 'এসএমএস ব্যালেন্স',
   'Refresh balance': 'ব্যালেন্স হালনাগাদ',
   'Not checked yet': 'এখনো যাচাই করা হয়নি',
+  'Provider estimate unavailable.': 'সেবাদাতার আনুমানিক এসএমএস সংখ্যা পাওয়া যায়নি।',
   'Add group': 'ব্যাচ যোগ করুন',
   Class: 'শ্রেণি',
   Session: 'শিক্ষাবর্ষ',

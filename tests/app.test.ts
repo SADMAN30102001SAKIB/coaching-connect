@@ -622,6 +622,78 @@ describe('provider contracts', () => {
       log.mockRestore();
     }
   });
+  it.each([
+    [undefined, null],
+    [null, null],
+    ['', null],
+    [' \t ', null],
+    [0, 0],
+    ['0', 0],
+    [75, 75],
+    ['75', 75],
+    [' 75 ', 75],
+    [false, 'invalid'],
+    [true, 'invalid'],
+    [[], 'invalid'],
+    [{}, 'invalid'],
+    ['unknown', 'invalid'],
+    [-1, 'invalid'],
+    [1.5, 'invalid'],
+  ])('parses provider SMS estimate %j as %j without inventing zero', async (estimate, expected) => {
+    const config: ProviderConfig = {
+      id: uid(),
+      center_id: centerId,
+      api_key: 'fixture-not-a-real-key',
+      sender_ids: '["TEST"]',
+      batch_size: 1,
+      interval_seconds: 2,
+    };
+    await statement(
+      env.DB,
+      'INSERT INTO provider_configs(id,center_id,api_key,sender_ids,active,created_at) VALUES(?,?,?,?,0,?)',
+      config.id,
+      config.center_id,
+      config.api_key,
+      config.sender_ids,
+      now(),
+    ).run();
+    await statement(
+      env.DB,
+      'INSERT INTO balances(center_id,config_id,balance,estimate_sms,checked_at) VALUES(?,?,?,0,?)',
+      config.center_id,
+      config.id,
+      '42.00',
+      now() - 61000,
+    ).run();
+    const network = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ balance: '42.00', estimate_sms: estimate }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    try {
+      const result = balance({ ...bindings, SMS_MODE: 'live' }, config, true);
+      if (expected === 'invalid') {
+        await expect(result).rejects.toMatchObject({ code: 'BALANCE_UNAVAILABLE' });
+        return;
+      }
+      await expect(result).resolves.toMatchObject({ balance: '42.00', estimate_sms: expected });
+      expect(
+        await one(
+          env.DB,
+          'SELECT balance,estimate_sms FROM balances WHERE center_id=? AND config_id=?',
+          config.center_id,
+          config.id,
+        ),
+      ).toEqual({ balance: '42.00', estimate_sms: expected });
+      await expect(balance({ ...bindings, SMS_MODE: 'live' }, config)).resolves.toMatchObject({
+        balance: '42.00',
+        estimate_sms: expected,
+      });
+      expect(network).toHaveBeenCalledTimes(1);
+    } finally {
+      network.mockRestore();
+    }
+  });
   it('never invents success from an empty or malformed acknowledgement', () => {
     expect(parseSubmissions({ ErrorCode: 202 }, [{ phone: '8801700000001' }])[0]?.state).toBe(
       'unknown',

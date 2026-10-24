@@ -14,7 +14,7 @@ export interface ProviderConfig {
 export type Submission =
   | { state: 'accepted'; id: string }
   | { state: 'failed' | 'unknown' | 'low_balance'; reason: string };
-const base = 'https://sms.ocs-api.top/api/';
+const base = 'https://sms.ocs-api.top/api/sandbox/';
 const object = z.record(z.string(), z.unknown());
 function scalar(value: unknown): string {
   return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '';
@@ -254,7 +254,17 @@ export async function balance(
   const input = z
     .object({
       balance: z.string().regex(/^\d+(?:\.\d+)?$/),
-      estimate_sms: z.coerce.number().int().nonnegative(),
+      estimate_sms: z.preprocess(
+        (value) =>
+          value === undefined || value === null || (typeof value === 'string' && !value.trim())
+            ? null
+            : value,
+        z
+          .union([z.number(), z.string().trim().min(1)])
+          .transform((value) => Number(value))
+          .pipe(z.number().int().nonnegative())
+          .nullable(),
+      ),
     })
     .safeParse(raw);
   assert(

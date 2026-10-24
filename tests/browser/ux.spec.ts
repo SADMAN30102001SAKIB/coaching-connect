@@ -746,6 +746,43 @@ test('Bangla uses the bundled font with joined text and unclipped shared typogra
   await cdp.detach();
 });
 
+test('missing SMS estimates stay unavailable while a genuine zero remains visible', async ({
+  page,
+}, info) => {
+  await fixture(page, ['balance.read']);
+  let estimate: number | null | undefined = null;
+  await page.route('**/api/c/center-a/balance', (route) =>
+    route.fulfill({
+      json: { balance: '42.00', estimate_sms: estimate, checked_at: 1 },
+    }),
+  );
+  for (const value of [null, undefined, 0, 75]) {
+    estimate = value;
+    await page.goto('/');
+    await expect(page.locator('.balance-number')).toHaveText('৳42.00');
+    const panel = page.locator('.balance-panel');
+    if (value === null || value === undefined) {
+      await expect(panel).toContainText('Provider estimate unavailable.');
+      await expect(panel).not.toContainText('Provider estimate: 0 SMS.');
+    } else {
+      await expect(panel).toContainText(`Provider estimate: ${value} SMS.`);
+      await expect(panel).not.toContainText('Provider estimate unavailable.');
+    }
+  }
+  estimate = null;
+  await page.reload();
+  await page.getByRole('button', { name: 'বাংলা', exact: true }).click();
+  await expect(page.locator('.balance-panel')).toContainText(
+    'সেবাদাতার আনুমানিক এসএমএস সংখ্যা পাওয়া যায়নি।',
+  );
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({
+    path: info.outputPath('unavailable-estimate-bangla.png'),
+    fullPage: true,
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('dashboard refreshes balance once per visit and reload, not on background updates', async ({
   page,
 }) => {
