@@ -15,6 +15,7 @@ test('exam header keeps send results beside edit on narrow screens', async ({ pa
   const first = boxes[0];
   if (!first) throw new Error('Archive action is missing');
   expect(boxes.every((box) => box && Math.abs(box.y - first.y) < 2)).toBe(true);
+  expect(boxes[1]?.width).toBeGreaterThanOrEqual(64);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await archive.click();
   await expect(page.getByRole('dialog', { name: 'Archive exam', exact: true })).toBeVisible();

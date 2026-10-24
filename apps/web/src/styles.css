@@ -2969,6 +2969,11 @@ dialog .actions {
     flex: 0 0 42px;
     padding: 8px;
   }
+  .exam-page-actions .exam-edit-action {
+    flex: 0 0 auto;
+    min-width: 64px;
+    padding-inline: 12px;
+  }
   .exam-lifecycle-action span {
     display: none;
   }

@@ -450,7 +450,11 @@ function ExamDetail() {
               </Button>
             )}
           {permissions.includes('exams.update') && (
-            <Button variant="secondary" onClick={() => setEditing(true)}>
+            <Button
+              variant="secondary"
+              className="exam-edit-action"
+              onClick={() => setEditing(true)}
+            >
               {t('Edit')}
             </Button>
           )}
