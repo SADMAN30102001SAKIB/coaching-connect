@@ -1,6 +1,27 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('exam header keeps send results beside edit on narrow screens', async ({ page }, info) => {
+  await fixture(page, ['exams.archive', 'exams.update', 'messages.create']);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/exams/exam-a');
+  const send = page.getByRole('link', { name: 'Send results', exact: true });
+  const edit = page
+    .locator('.exam-page-actions')
+    .getByRole('button', { name: 'Edit', exact: true });
+  const archive = page.getByRole('button', { name: 'Archive', exact: true });
+  await expect(send).toBeVisible();
+  const boxes = await Promise.all([archive.boundingBox(), edit.boundingBox(), send.boundingBox()]);
+  const first = boxes[0];
+  if (!first) throw new Error('Archive action is missing');
+  expect(boxes.every((box) => box && Math.abs(box.y - first.y) < 2)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await archive.click();
+  await expect(page.getByRole('dialog', { name: 'Archive exam', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('exam-header-mobile.png') });
+});
+
 async function fixture(page: Page, extraPermissions: string[] = []) {
   const control = {
     failExam: false,

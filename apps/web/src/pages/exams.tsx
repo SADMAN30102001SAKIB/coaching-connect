@@ -435,11 +435,18 @@ function ExamDetail() {
       eyebrow="Exams"
       title={exam.data?.name ?? 'Exam'}
       action={
-        <div className="page-actions">
+        <div className="page-actions exam-page-actions">
           {exam.data &&
             permissions.includes(exam.data.active ? 'exams.archive' : 'exams.update') && (
-              <Button variant="secondary" onClick={() => setLifecycleExam(exam.data)}>
-                {t(exam.data.active ? 'Archive' : 'Restore')}
+              <Button
+                variant="secondary"
+                className="exam-lifecycle-action"
+                aria-label={t(exam.data.active ? 'Archive' : 'Restore')}
+                title={t(exam.data.active ? 'Archive exam' : 'Restore exam')}
+                onClick={() => setLifecycleExam(exam.data)}
+              >
+                {exam.data.active ? <Archive size={17} /> : <RotateCcw size={17} />}
+                <span>{t(exam.data.active ? 'Archive' : 'Restore')}</span>
               </Button>
             )}
           {permissions.includes('exams.update') && (
