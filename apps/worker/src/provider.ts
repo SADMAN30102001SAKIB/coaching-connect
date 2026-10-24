@@ -126,7 +126,10 @@ export async function configFor(
     ? one(db, 'SELECT * FROM provider_configs WHERE center_id=? AND id=?', center, id)
     : one(db, 'SELECT * FROM provider_configs WHERE center_id=? AND active=1', center);
 }
-export function parseSubmissions(raw: unknown, recipients: { phone: string }[]): Submission[] {
+export function parseSubmissions(
+  raw: unknown,
+  recipients: { phone: string; body?: string }[],
+): Submission[] {
   const parsed = object.safeParse(raw);
   if (!parsed.success)
     return recipients.map(() => ({
@@ -135,7 +138,7 @@ export function parseSubmissions(raw: unknown, recipients: { phone: string }[]):
     }));
   const data = parsed.data;
   const code = scalar(data['ErrorCode'] ?? data['error_code'] ?? data['code']);
-  const content = data['Data'] ?? data['data'];
+  const content = data['Data'] ?? data['data'] ?? data['results'];
   const batchRejected =
     code === '1007' && (content == null || (Array.isArray(content) && content.length === 0));
   const items = (Array.isArray(content) ? content : [content]).flatMap((entry) => {
@@ -147,31 +150,54 @@ export function parseSubmissions(raw: unknown, recipients: { phone: string }[]):
       (item) => scalar(item['MobileNumber'] ?? item['Number']) === recipient.phone,
     );
     const single = items[0];
+    if (!matching.length && recipient.body !== undefined) {
+      const sameText = items.filter(
+        (item) =>
+          !scalar(item['MobileNumber'] ?? item['Number']) && item['message'] === recipient.body,
+      );
+      if (
+        sameText.length === 1 &&
+        recipients.filter((other) => other.body === recipient.body).length === 1
+      )
+        matching.push(...sameText);
+    }
     if (
       !matching.length &&
       recipients.length === 1 &&
       items.length === 1 &&
       single &&
-      !scalar(single['MobileNumber'] ?? single['Number'])
+      !scalar(single['MobileNumber'] ?? single['Number']) &&
+      (recipient.body === undefined ||
+        single['message'] === undefined ||
+        single['message'] === recipient.body)
     )
       matching.push(single);
     for (const item of matching) {
-      const id = item['MessageId'];
-      const itemCode = scalar(item['ErrorCode'] ?? code);
+      const id = item['MessageId'] ?? item['message_id'];
+      const itemCode = scalar(item['ErrorCode'] ?? item['code'] ?? code);
       if (
         typeof id === 'string' &&
         id.length >= 8 &&
         id.length <= 200 &&
-        ['0', '000', '202'].includes(itemCode)
+        (['0', '000', '202'].includes(itemCode) ||
+          (item['status'] === 'sent' && itemCode === '')) &&
+        !items.some(
+          (other) =>
+            other !== item &&
+            (other['MessageId'] ?? other['message_id']) === id &&
+            (scalar(other['MobileNumber'] ?? other['Number']) !==
+              scalar(item['MobileNumber'] ?? item['Number']) ||
+              other['message'] !== item['message']),
+        )
       )
         return { state: 'accepted', id };
     }
     const rejected = matching.length === 1 ? matching[0] : undefined;
-    const receipt = rejected?.['MessageId'];
+    const receipt = rejected?.['MessageId'] ?? rejected?.['message_id'];
     if (
       batchRejected ||
       (rejected &&
-        scalar(rejected['ErrorCode'] ?? code) === '1007' &&
+        scalar(rejected['ErrorCode'] ?? rejected['code'] ?? code) === '1007' &&
         (receipt == null || receipt === ''))
     )
       return { state: 'low_balance', reason: 'The provider reported insufficient balance.' };

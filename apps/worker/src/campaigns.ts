@@ -859,7 +859,8 @@ async function sendChunk(env: Bindings, campaign: StoredCampaign) {
     }
   >(
     env.DB,
-    "SELECT * FROM messages WHERE center_id=? AND campaign_id=? AND state='pending' ORDER BY id LIMIT ?",
+    // The live provider echoes text, not destinations; identical texts must go in separate batches.
+    "SELECT * FROM messages WHERE id IN (SELECT MIN(id) FROM messages WHERE center_id=? AND campaign_id=? AND state='pending' GROUP BY body) ORDER BY id LIMIT ?",
     campaign.center_id,
     campaign.id,
     config.batch_size,

@@ -720,6 +720,108 @@ describe('provider contracts', () => {
       'low_balance',
     );
   });
+  it('recognizes the observed live results/message_id receipt without treating sent as delivered', () => {
+    const recipients = [{ phone: '8801700000001', body: 'Diagnostic message' }];
+    expect(
+      parseSubmissions(
+        {
+          message: 'SMS request processed successfully',
+          total_cost: 0.35,
+          results: [
+            {
+              code: null,
+              message: recipients[0]?.body,
+              status: 'sent',
+              sms_count: 1,
+              message_id: 'observed-format-receipt',
+            },
+          ],
+        },
+        recipients,
+      ),
+    ).toEqual([{ state: 'accepted', id: 'observed-format-receipt' }]);
+  });
+  it('matches live-format receipts by exact unique message text, not response order', () => {
+    const recipients = [
+      { phone: '8801700000001', body: 'Student A\nEnglish: 32/50' },
+      { phone: '8801700000002', body: 'Student B\nEnglish: absent' },
+      { phone: '8801700000003', body: 'Student C\nEnglish: 45/50' },
+    ];
+    expect(
+      parseSubmissions(
+        {
+          results: recipients
+            .map((recipient, index) => ({
+              code: null,
+              message: recipient.body,
+              status: 'sent',
+              message_id: `live-receipt-${index}`,
+            }))
+            .reverse(),
+        },
+        recipients,
+      ),
+    ).toEqual(recipients.map((_, index) => ({ state: 'accepted', id: `live-receipt-${index}` })));
+  });
+  it('keeps ambiguous, mismatched, reused or incomplete live-format receipts unknown', () => {
+    const recipients = [
+      { phone: '8801700000001', body: 'Same text' },
+      { phone: '8801700000002', body: 'Same text' },
+    ];
+    expect(
+      parseSubmissions(
+        {
+          results: [
+            { code: null, message: 'Same text', status: 'sent', message_id: 'live-receipt-first' },
+            { code: null, message: 'Same text', status: 'sent', message_id: 'live-receipt-second' },
+          ],
+        },
+        recipients,
+      ).every((outcome) => outcome.state === 'unknown'),
+    ).toBe(true);
+    for (const result of [
+      { code: null, message: 'Different text', status: 'sent', message_id: 'live-receipt-first' },
+      { code: null, message: 'Same text', status: 'sent' },
+      { code: null, message: 'Same text', status: 'failed', message_id: 'live-receipt-first' },
+      { code: 1007, message: 'Same text', status: 'sent', message_id: 'live-receipt-first' },
+    ])
+      expect(parseSubmissions({ results: [result] }, recipients.slice(0, 1))[0]?.state).toBe(
+        'unknown',
+      );
+    expect(
+      parseSubmissions(
+        {
+          results: [
+            { code: null, message: 'First', status: 'sent', message_id: 'reused-receipt-id' },
+            { code: null, message: 'Second', status: 'sent', message_id: 'reused-receipt-id' },
+          ],
+        },
+        [
+          { phone: '8801700000001', body: 'First' },
+          { phone: '8801700000002', body: 'Second' },
+        ],
+      ).every((outcome) => outcome.state === 'unknown'),
+    ).toBe(true);
+  });
+  it('preserves confirmed live-format receipts while retaining explicit low-balance recipients for resumption', () => {
+    expect(
+      parseSubmissions(
+        {
+          results: [
+            { code: null, message: 'First', status: 'sent', message_id: 'live-accepted-receipt' },
+            { code: 1007, message: 'Second', status: 'failed', message_id: null },
+          ],
+        },
+        [
+          { phone: '8801700000001', body: 'First' },
+          { phone: '8801700000002', body: 'Second' },
+        ],
+      ),
+    ).toEqual([
+      { state: 'accepted', id: 'live-accepted-receipt' },
+      { state: 'low_balance', reason: 'The provider reported insufficient balance.' },
+    ]);
+  });
   it.each([202, 1007])(
     'preserves per-recipient receipts in a mixed batch with overall code %i',
     (code) => {
@@ -1868,7 +1970,7 @@ describe('campaign edge states', () => {
 });
 describe('sending recovery races', () => {
   const sending = { ...bindings, SMS_MODE: 'live' as const };
-  async function ready(count = 6, batchSize = 2) {
+  async function ready(count = 6, batchSize = 2, body = 'Hello {{student_name}}') {
     const center = uid();
     const config = uid();
     const recipients = Array.from({ length: count }, (_, index) => ({
@@ -1917,7 +2019,7 @@ describe('sending recovery races', () => {
     const created = await call(`/c/${center}/campaigns`, 'POST', {
       name: 'Recovery race fixture',
       scope: 'announcement',
-      body: 'Hello {{student_name}}',
+      body,
       exam_ids: [],
       paper_id: null,
       group_ids: [],
@@ -1996,6 +2098,111 @@ describe('sending recovery races', () => {
       ),
     ]);
   }
+  it('persists live-format receipts and reconciles delivery without resending', async () => {
+    const { id } = await ready(3, 100);
+    const receipts = new Map<string, string>();
+    let submissions = 0;
+    const network = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = new URL(
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      );
+      if (typeof init?.body !== 'string') throw new Error('Expected JSON body');
+      const payload = JSON.parse(init.body) as Record<string, unknown>;
+      if (url.pathname.endsWith('/send-bulk-sms')) {
+        submissions++;
+        const parameters = z
+          .array(z.object({ Number: z.string(), Text: z.string() }))
+          .parse(payload['MessageParameters']);
+        return Promise.resolve(
+          Response.json({
+            total_cost: 1.05,
+            results: parameters
+              .map((item) => {
+                const receipt = uid();
+                receipts.set(item.Number, receipt);
+                return {
+                  code: null,
+                  message: item.Text,
+                  status: 'sent',
+                  sms_count: 1,
+                  message_id: receipt,
+                };
+              })
+              .reverse(),
+          }),
+        );
+      }
+      expect(url.pathname.endsWith('/sms-check')).toBe(true);
+      return Promise.resolve(
+        Response.json({
+          ErrorCode: 0,
+          Data: { MessageId: payload['MessageId'], Status: 'Delivered', ErrorCode: '000' },
+        }),
+      );
+    });
+    try {
+      await step(id);
+      expect(await counts(id)).toEqual({ accepted: 3 });
+      const messages = await rows<{
+        id: string;
+        phone: string;
+        provider_id: string;
+        next_check_at: number;
+      }>(env.DB, 'SELECT id,phone,provider_id,next_check_at FROM messages WHERE campaign_id=?', id);
+      for (const message of messages) {
+        expect(message.provider_id).toBe(receipts.get(message.phone));
+        expect(message.next_check_at).toBeGreaterThan(now());
+        await statement(
+          env.DB,
+          'UPDATE messages SET next_check_at=? WHERE id=?',
+          now() - 1,
+          message.id,
+        ).run();
+        await checkMessage(sending, message.id);
+        await checkMessage(sending, message.id);
+      }
+      await step(id);
+      expect(await counts(id)).toEqual({ delivered: 3 });
+      expect(
+        await one(env.DB, 'SELECT submitted,delivered,state FROM campaigns WHERE id=?', id),
+      ).toEqual({ submitted: 3, delivered: 3, state: 'completed' });
+      expect(submissions).toBe(1);
+    } finally {
+      network.mockRestore();
+    }
+  });
+  it('sends identical texts in separate batches so live receipts remain attributable', async () => {
+    const { id } = await ready(3, 100, 'A shared announcement');
+    const phones: string[] = [];
+    const network = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      if (typeof init?.body !== 'string') throw new Error('Expected JSON body');
+      const payload = z
+        .object({ MessageParameters: z.array(z.object({ Number: z.string(), Text: z.string() })) })
+        .parse(JSON.parse(init.body));
+      expect(payload.MessageParameters).toHaveLength(1);
+      const item = z
+        .object({ Number: z.string(), Text: z.string() })
+        .parse(payload.MessageParameters[0]);
+      phones.push(item.Number);
+      return Promise.resolve(
+        Response.json({
+          results: [{ code: null, message: item.Text, status: 'sent', message_id: uid() }],
+        }),
+      );
+    });
+    try {
+      for (let turn = 0; turn < 4; turn++) await step(id);
+      expect(await counts(id)).toEqual({ accepted: 3 });
+      expect(phones).toHaveLength(3);
+      expect(new Set(phones).size).toBe(3);
+      expect(await one(env.DB, 'SELECT submitted,state FROM campaigns WHERE id=?', id)).toEqual({
+        submitted: 3,
+        state: 'completed',
+      });
+    } finally {
+      network.mockRestore();
+    }
+  });
   it('allows one concurrent resume and one worker claim without resetting an active lease', async () => {
     const { center, id } = await ready();
     await paused(center, id);
