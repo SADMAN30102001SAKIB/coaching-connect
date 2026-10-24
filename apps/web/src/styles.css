@@ -698,6 +698,47 @@ select:disabled {
 .record-row:has(.record-row-content:hover) {
   background: var(--surface-hover);
 }
+.record-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.record-actions .record-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-height: 40px;
+  padding: 8px;
+  color: var(--muted);
+}
+.record-actions .danger-icon-btn:hover {
+  color: var(--danger-text);
+}
+.exam-record {
+  gap: 10px;
+}
+.staff-row {
+  padding: 16px 0;
+  gap: 12px;
+}
+.staff-headline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.staff-headline strong {
+  min-width: 0;
+}
+.staff-phone {
+  display: block;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--muted);
+}
 .danger-icon-btn {
   color: var(--muted);
   padding: 6px;
@@ -752,11 +793,6 @@ select:disabled {
   grid-row: 2;
   justify-self: end;
   white-space: nowrap;
-}
-.exam-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .grow {
   flex: 1;
@@ -1148,12 +1184,6 @@ select:disabled {
   border-color: var(--border-strong);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
 }
-.exam-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
 .exam-card-header {
   display: flex;
   justify-content: space-between;
@@ -1210,12 +1240,6 @@ select:disabled {
   width: 100%;
   justify-content: center;
   margin-top: auto;
-}
-.exam-card .text-link {
-  margin-top: auto;
-  width: 100%;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
 }
 .add-subject-card {
   display: flex;
@@ -1513,6 +1537,66 @@ dialog::backdrop {
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
   animation: backdrop-enter 0.2s ease-out;
+}
+dialog.dialog-compact {
+  width: min(440px, calc(100% - 32px));
+}
+dialog.dialog-compact .dialog-header h2 {
+  font-size: 22px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.member-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  overflow-wrap: anywhere;
+}
+.member-summary small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.role-choices {
+  border: 0;
+  padding: 0;
+  margin: 20px 0;
+  min-width: 0;
+}
+.role-choices legend {
+  font-size: 14px;
+  font-weight: 600;
+}
+.role-choices p {
+  font-size: 13px;
+  margin: 6px 0 12px;
+}
+.role-choices .choice {
+  margin: 8px 0;
+}
+.role-choices .choice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.access-control {
+  align-items: flex-start;
+}
+.access-control input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.access-control > span {
+  font-weight: 600;
+}
+.access-control small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+  font-weight: 400;
 }
 @keyframes dialog-enter {
   from {
@@ -2279,7 +2363,20 @@ dialog .actions {
 }
 .platform-center-info h2 {
   font-size: 16px;
-  margin-bottom: 6px;
+  margin: 0;
+}
+.platform-center-headline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.platform-center-headline .badge {
+  flex-shrink: 0;
+}
+.platform-center-headline h2 {
+  min-width: 0;
 }
 .platform-center-info p {
   font-size: 13px;
@@ -2289,7 +2386,11 @@ dialog .actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.platform-center-actions small {
+  font-size: 12px;
 }
 @media (max-width: 1023px) {
   .send-controls {
@@ -2319,13 +2420,23 @@ dialog .actions {
     padding: 16px;
   }
   .platform-center-actions {
-    justify-content: space-between;
+    justify-content: flex-start;
   }
-  .platform-page > .page-header {
+  .center-contact-separator {
+    display: none;
+  }
+  .center-phone {
     display: block;
   }
+  .platform-page > .page-header {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 12px;
+  }
   .platform-page > .page-header > .button {
-    margin-top: 16px;
+    margin-top: 0;
+    align-self: center;
   }
 }
 @media (min-width: 1600px) {
@@ -2967,11 +3078,16 @@ dialog .actions {
     border-radius: 6px;
   }
   dialog .actions {
-    flex-direction: column-reverse;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: stretch;
     gap: 8px;
   }
   dialog .actions > * {
-    width: 100%;
+    flex: 1 1 110px;
+    min-width: 0;
+    width: auto;
+    white-space: normal;
     justify-content: center;
   }
   .balance-panel {
@@ -3405,15 +3521,47 @@ dialog .actions {
   gap: 12px;
   color: var(--muted);
 }
+.account-name {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.account-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 @media (max-width: 700px) {
   .account-header {
     flex-direction: column;
     align-items: stretch;
   }
-  .account-header .actions {
+  .account-header .account-controls {
     align-self: flex-start;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+  }
+  .account-controls .control-label {
+    display: none;
+  }
+  .account-controls .account-icon-control {
+    width: 40px;
+    min-height: 40px;
+    padding: 8px;
+  }
+  .exam-record {
+    gap: 4px;
+  }
+  .staff-row {
+    gap: 8px;
+    padding: 14px 0;
+  }
+  .staff-row .initial-avatar {
+    align-self: flex-start;
+  }
+  .staff-phone {
+    font-size: 12px;
   }
 }
 

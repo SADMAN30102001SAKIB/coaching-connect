@@ -541,37 +541,50 @@ function Staff() {
       <Alert error={update.error} />
       <MoreChoices query={staff} />
       <State query={staff}>
-        <section className="panel">
-          <h2>{t('Staff & roles')}</h2>
+        <section className="panel staff-panel">
+          <h2>{t('Staff')}</h2>
           {staff.data?.items.map((person) => (
-            <div className="record-row" key={person.id}>
+            <div className="record-row staff-row" key={person.id}>
               <span className="initial-avatar">{person.name.slice(0, 1) || '?'}</span>
               <div className="grow">
-                <strong>{person.name || t('Awaiting activation')}</strong>
-                <small>
-                  {person.phone} ·{' '}
-                  {person.pending ? t('Invited') : person.active ? t('Active') : t('Suspended')}
-                </small>
+                <div className="staff-headline">
+                  <strong>{person.name || t('Awaiting activation')}</strong>
+                  <span
+                    className={`badge ${person.pending || !person.active ? 'paused' : 'accepted'}`}
+                  >
+                    {t(
+                      person.id === center.owner_id
+                        ? 'Admin'
+                        : person.pending
+                          ? 'Invited'
+                          : person.active
+                            ? 'Active'
+                            : 'Suspended',
+                    )}
+                  </span>
+                </div>
+                <small className="staff-phone">{person.phone}</small>
               </div>
-              {person.id === center.owner_id ? (
-                <span className="badge accepted">{t('Admin')}</span>
-              ) : (
-                <div className="actions">
+              {person.id !== center.owner_id && (
+                <div className="record-actions">
                   {!person.pending && (
                     <Button
-                      variant="secondary"
+                      variant="ghost"
+                      className="record-icon-action"
+                      aria-label={`${t('Edit staff access')} ${person.name}`}
+                      title={t('Edit staff access')}
                       onClick={() => {
                         action.reset();
                         update.reset();
                         setMember(person);
                       }}
                     >
-                      {t('Edit')}
+                      <Pencil size={17} />
                     </Button>
                   )}
                   <Button
                     variant="ghost"
-                    className="danger-icon-btn"
+                    className="danger-icon-btn record-icon-action"
                     aria-label={`${t(person.pending ? 'Revoke invitation' : 'Remove from center')} ${person.name || person.phone}`}
                     onClick={() => {
                       update.reset();
@@ -588,7 +601,7 @@ function Staff() {
       </State>
       <section className="panel">
         <div className="section-header">
-          <h2>{t('Permissions')}</h2>
+          <h2>{t('Roles')}</h2>
           <Button variant="secondary" onClick={() => setRole('new')}>
             <Plus size={17} />
             {t('Create role')}
@@ -644,7 +657,8 @@ function Staff() {
         {t('Transfer ownership')}
       </Button>
       <Dialog
-        title={member === 'new' ? 'Invite staff' : 'Edit'}
+        title={member === 'new' ? 'Invite staff' : 'Edit staff access'}
+        size="compact"
         open={member !== null}
         onClose={() => setMember(null)}
       >
@@ -685,6 +699,12 @@ function Staff() {
                 );
             }}
           >
+            {member !== 'new' && (
+              <div className="member-summary">
+                <strong>{member.name}</strong>
+                <small>{member.phone}</small>
+              </div>
+            )}
             {member === 'new' && (
               <>
                 <Field label="Phone number">
@@ -692,23 +712,35 @@ function Staff() {
                 </Field>
               </>
             )}
-            {roles.data?.items.map((r) => (
-              <label className="check choice" key={r.id}>
-                <input
-                  type="checkbox"
-                  name="role"
-                  value={r.id}
-                  defaultChecked={
-                    member !== 'new' && (JSON.parse(member.role_ids) as string[]).includes(r.id)
-                  }
-                />
-                {r.name}
-              </label>
-            ))}
+            <fieldset className="role-choices">
+              <legend>{t('Roles')}</legend>
+              <p className="muted">
+                {t('Choose what this person can access in this coaching center.')}
+              </p>
+              {roles.data?.items.map((r) => (
+                <label className="check choice" key={r.id}>
+                  <input
+                    type="checkbox"
+                    name="role"
+                    value={r.id}
+                    defaultChecked={
+                      member !== 'new' && (JSON.parse(member.role_ids) as string[]).includes(r.id)
+                    }
+                  />
+                  <span>{r.name}</span>
+                </label>
+              ))}
+              {!roles.data?.items.length && (
+                <p className="muted">{t('No roles yet. Create a role to assign access.')}</p>
+              )}
+            </fieldset>
             {member !== 'new' && (
-              <label className="check">
+              <label className="check access-control">
                 <input type="checkbox" name="active" defaultChecked={Boolean(member.active)} />
-                {t('Active')}
+                <span>
+                  {t('Allow center access')}
+                  <small>{t('Turn off to suspend access to this center only.')}</small>
+                </span>
               </label>
             )}
             <Alert error={action.error ?? update.error} />
@@ -717,7 +749,7 @@ function Staff() {
                 {t('Cancel')}
               </Button>
               <Button type="submit" busy={action.isPending || update.isPending}>
-                {t(member === 'new' ? 'Invite staff' : 'Save')}
+                {t(member === 'new' ? 'Invite staff' : 'Save access')}
               </Button>
             </div>
           </form>
@@ -884,6 +916,8 @@ function RoleEditor({
     academic: 'Subjects',
     results: 'Marks & results',
     balance: 'SMS balance',
+    'exams.archive': 'Archive or delete exams',
+    'exams.update': 'Edit or restore exams',
     'messages.read': 'View campaigns',
     'messages.create': 'Create drafts',
     'messages.send': 'Send messages',

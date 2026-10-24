@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router';
-import { Plus, GraduationCap, Trash2, BookOpen, Calendar, Send, Users } from 'lucide-react';
+import {
+  Plus,
+  GraduationCap,
+  Trash2,
+  BookOpen,
+  Calendar,
+  Send,
+  Users,
+  Archive,
+  RotateCcw,
+} from 'lucide-react';
 import {
   formatScore,
   toScore,
@@ -50,6 +60,7 @@ function ExamList() {
     ? (params.get('status') ?? 'all')
     : 'all';
   const [deletingExam, setDeletingExam] = useState<Exam | null>(null);
+  const [lifecycleExam, setLifecycleExam] = useState<Exam | null>(null);
   const list = useData<Paged<Exam>>(`/exams?status=${status}&cursor=${encodeURIComponent(cursor)}`);
   const action = useAction();
   const { permissions } = useCenter();
@@ -76,77 +87,70 @@ function ExamList() {
             aria-pressed={status === value}
             onClick={() => update({ status: value, cursor: '' })}
           >
-            {t(value === 'all' ? 'All exams' : value === 'active' ? 'Active' : 'Inactive')}
+            {t(value === 'all' ? 'All exams' : value === 'active' ? 'Current' : 'Archived')}
           </button>
         ))}
       </div>
       <Alert error={action.error} />
       <State query={list}>
         {list.data?.items.length ? (
-          <div className="exam-grid">
+          <section className="panel flush">
             {list.data.items.map((exam) => (
-              <Link className="panel exam-card" to={`/exams/${exam.id}`} key={exam.id}>
-                <div className="exam-card-top">
+              <div className="record-row exam-record" key={exam.id}>
+                <Link className="record-row-content grow" to={`/exams/${exam.id}`}>
                   <span className="record-icon">
-                    <GraduationCap size={24} />
+                    <GraduationCap size={20} />
                   </span>
-                  <div className="exam-card-actions">
-                    <span className="mini-label">{exam.exam_date}</span>
-                    {permissions.includes('exams.archive') && (
-                      <Button
-                        variant="ghost"
-                        className="danger-icon-btn"
-                        aria-label={`Delete ${exam.name}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          action.reset();
-                          setDeletingExam(exam);
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </Button>
-                    )}
+                  <div className="grow">
+                    <strong>{exam.name}</strong>
+                    <small>{exam.exam_date}</small>
                   </div>
+                  {!exam.active && <span className="badge paused">{t('Archived')}</span>}
+                </Link>
+                <div className="record-actions">
+                  {permissions.includes(exam.active ? 'exams.archive' : 'exams.update') && (
+                    <Button
+                      variant="ghost"
+                      className="record-icon-action"
+                      aria-label={`${t(exam.active ? 'Archive' : 'Restore')} ${exam.name}`}
+                      title={t(exam.active ? 'Archive exam' : 'Restore exam')}
+                      onClick={() => setLifecycleExam(exam)}
+                    >
+                      {exam.active ? <Archive size={17} /> : <RotateCcw size={17} />}
+                    </Button>
+                  )}
+                  {permissions.includes('exams.archive') && (
+                    <Button
+                      variant="ghost"
+                      className="danger-icon-btn record-icon-action"
+                      aria-label={`Delete ${exam.name}`}
+                      title={t('Delete exam')}
+                      onClick={() => {
+                        action.reset();
+                        setDeletingExam(exam);
+                      }}
+                    >
+                      <Trash2 size={17} />
+                    </Button>
+                  )}
                 </div>
-                <h2>{exam.name}</h2>
-                {!exam.active && <span className="badge paused">{t('Inactive')}</span>}
-                {!exam.active && permissions.includes('exams.update') && (
-                  <Button
-                    variant="secondary"
-                    busy={action.isPending}
-                    aria-label={`${t('Reactivate')} ${exam.name}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      action.mutate({
-                        path: `/exams/${exam.id}`,
-                        method: 'PATCH',
-                        body: {
-                          name: exam.name,
-                          exam_date: exam.exam_date,
-                          version: exam.version,
-                          active: true,
-                        },
-                      });
-                    }}
-                  >
-                    {t('Reactivate')}
-                  </Button>
-                )}
-                <span className="text-link">
-                  {t('View exam')} <span>→</span>
-                </span>
-              </Link>
+                <Link
+                  className="row-arrow"
+                  to={`/exams/${exam.id}`}
+                  aria-label={`${t('View exam')} ${exam.name}`}
+                >
+                  →
+                </Link>
+              </div>
             ))}
-          </div>
+          </section>
         ) : (
           <Empty
             title={
               status === 'inactive'
-                ? 'No inactive exams'
+                ? 'No archived exams'
                 : status === 'active'
-                  ? 'No active exams'
+                  ? 'No current exams'
                   : 'No exams yet'
             }
             description={
@@ -158,6 +162,11 @@ function ExamList() {
         )}
         <NextPage next={list.data?.next} onNext={(cursor) => update({ cursor })} />
       </State>
+      <ExamLifecycleDialog
+        key={lifecycleExam?.id ?? 'closed'}
+        exam={lifecycleExam}
+        onClose={() => setLifecycleExam(null)}
+      />
       <Dialog
         title="Delete exam"
         open={deletingExam !== null}
@@ -204,6 +213,56 @@ function ExamList() {
     </Page>
   );
 }
+function ExamLifecycleDialog({ exam, onClose }: { exam: Exam | null; onClose: () => void }) {
+  const action = useAction();
+  const { t } = useLocale();
+  return (
+    <Dialog
+      title={exam?.active ? 'Archive exam' : 'Restore exam'}
+      open={exam !== null}
+      onClose={onClose}
+    >
+      <p>
+        <strong>{exam?.name}</strong>
+      </p>
+      <p>
+        {t(
+          exam?.active
+            ? 'Archive this exam? Its marks and history are kept, but it will no longer appear in new-message selectors.'
+            : 'Restore this exam? It will be available in new-message selectors again.',
+        )}
+      </p>
+      <Alert error={action.error} />
+      <div className="actions">
+        <Button variant="secondary" onClick={onClose}>
+          {t('Cancel')}
+        </Button>
+        <Button
+          busy={action.isPending}
+          onClick={() => {
+            if (exam)
+              action.mutate(
+                {
+                  path: `/exams/${exam.id}`,
+                  method: 'PATCH',
+                  body: {
+                    name: exam.name,
+                    exam_date: exam.exam_date,
+                    version: exam.version,
+                    active: !exam.active,
+                  },
+                },
+                { onSuccess: onClose },
+              );
+          }}
+        >
+          {t(exam?.active ? 'Archive' : 'Restore')}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
 function CreateExam() {
   const { permissions } = useCenter();
   const subjects = useChoices<Catalog>(
@@ -359,6 +418,7 @@ function ExamDetail() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const [editing, setEditing] = useState(false);
+  const [lifecycleExam, setLifecycleExam] = useState<Exam | null>(null);
   const [confirmDeleteExam, setConfirmDeleteExam] = useState(false);
   const [removeGroup, setRemoveGroup] = useState<{
     id: string;
@@ -376,12 +436,18 @@ function ExamDetail() {
       title={exam.data?.name ?? 'Exam'}
       action={
         <div className="page-actions">
+          {exam.data &&
+            permissions.includes(exam.data.active ? 'exams.archive' : 'exams.update') && (
+              <Button variant="secondary" onClick={() => setLifecycleExam(exam.data)}>
+                {t(exam.data.active ? 'Archive' : 'Restore')}
+              </Button>
+            )}
           {permissions.includes('exams.update') && (
             <Button variant="secondary" onClick={() => setEditing(true)}>
               {t('Edit')}
             </Button>
           )}
-          {permissions.includes('messages.create') && (
+          {Boolean(exam.data?.active) && permissions.includes('messages.create') && (
             <Link className="button primary" to={`/messages/new?exam=${id}`}>
               <Send size={16} />
               {t('Send results')}
@@ -390,6 +456,16 @@ function ExamDetail() {
         </div>
       }
     >
+      <ExamLifecycleDialog
+        key={lifecycleExam?.id ?? 'closed'}
+        exam={lifecycleExam}
+        onClose={() => setLifecycleExam(null)}
+      />
+      {exam.data && !exam.data.active && (
+        <p className="notice">
+          {t('Archived exam. Marks and history are kept. Restore it to use it in new messages.')}
+        </p>
+      )}
       <State query={exam}>
         {exam.data && (
           <>
@@ -714,7 +790,6 @@ function ExamEditor({
   const initial = useDraftSnapshot(incoming, dirty);
   const action = useAction();
   const { t } = useLocale();
-  const { permissions } = useCenter();
   return (
     <form
       key={initial.version}
@@ -730,10 +805,7 @@ function ExamEditor({
               name: form.get('name'),
               exam_date: form.get('date'),
               version: initial.version,
-              active:
-                initial.active && !permissions.includes('exams.archive')
-                  ? true
-                  : form.get('active') === 'on',
+              active: Boolean(initial.active),
             },
           },
           { onSuccess: onDone },
@@ -746,15 +818,6 @@ function ExamEditor({
       <Field label="Date">
         <input name="date" type="date" defaultValue={initial.exam_date} required />
       </Field>
-      <label className="check">
-        <input
-          name="active"
-          type="checkbox"
-          defaultChecked={Boolean(initial.active)}
-          disabled={Boolean(initial.active) && !permissions.includes('exams.archive')}
-        />
-        {t('Active')}
-      </label>
       <Alert error={action.error} />
       <div className="actions">
         <Button type="button" variant="secondary" onClick={onDone}>

@@ -130,7 +130,26 @@ exams.patch('/:id', async (c) => {
       active: z.boolean(),
     })
     .parse(await c.req.json());
-  const a = requirePermission(c, `exams.${input.active ? 'update' : 'archive'}`);
+  const a = requirePermission(
+    c,
+    c.get('access').grants.includes('exams.update') ? 'exams.update' : 'exams.archive',
+  );
+  const current = await one<Exam>(
+    c.env.DB,
+    'SELECT * FROM exams WHERE center_id=? AND id=?',
+    a.center.id,
+    c.req.param('id'),
+  );
+  assert(current, 'NOT_FOUND', 'This exam is unavailable.', 404);
+  assert(
+    current.version === input.version,
+    'EDIT_CONFLICT',
+    'The exam changed. Reload before saving.',
+    409,
+  );
+  requirePermission(c, current.active && !input.active ? 'exams.archive' : 'exams.update');
+  if (input.name !== current.name || input.exam_date !== current.exam_date)
+    requirePermission(c, 'exams.update');
   const result = await statement(
     c.env.DB,
     'UPDATE exams SET name=?,exam_date=?,active=?,version=version+1 WHERE center_id=? AND id=? AND version=?',

@@ -168,29 +168,40 @@ export default function App() {
       <main className="standalone">
         <header className="page-header account-header">
           <div>
-            <p className="eyebrow">COACHING CONNECT</p>
-            <h1>
-              {t(user.platform ? 'Platform' : 'Welcome back')}, {user.name}
-            </h1>
+            <h1>{t(user.platform ? 'Platform' : 'Your account')}</h1>
+            <p className="account-name">{user.name}</p>
           </div>
-          <div className="actions">
+          <div className="account-controls">
             <ThemePicker />
             <Button variant="ghost" onClick={toggle}>
               {locale === 'en' ? 'বাংলা' : 'English'}
             </Button>
             <Link
-              className="button secondary"
+              className="button secondary account-icon-control"
               to={location.pathname === '/settings' ? '/' : '/settings'}
+              aria-label={t(location.pathname === '/settings' ? 'Home' : 'Settings')}
+              title={t(location.pathname === '/settings' ? 'Home' : 'Settings')}
             >
-              {t(location.pathname === '/settings' ? 'Home' : 'Settings')}
+              {location.pathname === '/settings' ? (
+                <Home size={18} aria-hidden="true" />
+              ) : (
+                <Settings size={18} aria-hidden="true" />
+              )}
+              <span className="control-label">
+                {t(location.pathname === '/settings' ? 'Home' : 'Settings')}
+              </span>
             </Link>
             <Button
               variant="secondary"
+              className="account-icon-control"
+              aria-label={t('Sign out')}
+              title={t('Sign out')}
               onClick={() => {
                 signOut();
               }}
             >
-              {t('Sign out')}
+              <LogOut size={18} aria-hidden="true" />
+              <span className="control-label">{t('Sign out')}</span>
             </Button>
           </div>
         </header>

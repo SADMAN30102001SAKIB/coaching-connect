@@ -94,6 +94,14 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
       if (path.endsWith('/staff/invite')) return json({ token: 'a'.repeat(64) });
       if (req.method() === 'DELETE' && path.includes('/staff/'))
         control.staff = control.staff.filter((person) => !path.endsWith(`/${person.id}`));
+      if (req.method() === 'PUT' && path.includes('/staff/')) {
+        const input = req.postDataJSON() as { active: boolean; role_ids: string[] };
+        control.staff = control.staff.map((person) =>
+          path.endsWith(`/${person.id}`)
+            ? { ...person, active: Number(input.active), role_ids: JSON.stringify(input.role_ids) }
+            : person,
+        );
+      }
       if (path === '/api/auth/login') control.authenticated = true;
       if (path === '/api/auth/bootstrap') {
         control.authenticated = true;
@@ -247,7 +255,144 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
   return control;
 }
 
-test('inactive exams are discoverable, filterable and reactivated without losing URL state', async ({
+test('management rows, compact staff dialogs and platform controls stay usable on narrow and short screens', async ({
+  page,
+}, info) => {
+  await page.setViewportSize(
+    info.project.use.isMobile ? { width: 320, height: 700 } : { width: 1280, height: 800 },
+  );
+  const control = await fixture(page);
+  const name = 'A teacher with a long full display name';
+  control.staff = [
+    {
+      id: 'staff-long',
+      name,
+      phone: '8801700000011',
+      active: 1,
+      pending: 0,
+      role_ids: '["role-0"]',
+    },
+    {
+      id: 'staff-pending',
+      name: '',
+      phone: '8801700000012',
+      active: 0,
+      pending: 1,
+      role_ids: '[]',
+    },
+    {
+      id: 'owner',
+      name: 'Coaching administrator',
+      phone: '8801700000013',
+      active: 1,
+      pending: 0,
+      role_ids: '[]',
+    },
+  ];
+  await page.route('**/api/c/center-a/roles?*', (route) =>
+    route.fulfill({
+      json: {
+        items: Array.from({ length: 12 }, (_, index) => ({
+          id: `role-${index}`,
+          name: `Long teaching and classroom coordination role ${index + 1}`,
+          permissions: ['students.read'],
+          version: 1,
+        })),
+        next: null,
+      },
+    }),
+  );
+  await page.goto('/exams');
+  await expect(page.locator('.exam-record')).toBeVisible();
+  await expect(page.locator('.exam-record a button')).toHaveCount(0);
+  const examBox = await page.locator('.exam-record').boundingBox();
+  if (!examBox) throw new Error('Missing exam row');
+  expect(examBox.height).toBeLessThan(140);
+  const titleColor = await page
+    .locator('.exam-record strong')
+    .evaluate((element) => getComputedStyle(element).color);
+  await page.screenshot({ path: info.outputPath('compact-exam-list.png'), fullPage: true });
+  await page.goto('/students');
+  await expect(page.locator('.record-row strong').first()).toHaveCSS('color', titleColor);
+  await page.goto('/staff');
+  await expect(page.getByRole('heading', { name: 'Staff', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Roles', exact: true })).toBeVisible();
+  await expect(page.locator('.staff-headline .badge')).toHaveCount(3);
+  const phonesFit = await page
+    .locator('.staff-phone')
+    .evaluateAll((phones) => phones.every((phone) => phone.scrollWidth <= phone.clientWidth));
+  expect(phonesFit).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('staff-rows.png'), fullPage: true });
+  await page.getByRole('button', { name: `Edit staff access ${name}`, exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit staff access', exact: true });
+  await expect(edit.locator('.member-summary')).toContainText(name);
+  await expect(edit.getByRole('group', { name: 'Roles', exact: true })).toBeVisible();
+  await expect(
+    edit.getByRole('checkbox', { name: /Long teaching.*role 1$/, exact: false }),
+  ).toBeChecked();
+  await page.setViewportSize({ width: 320, height: 480 });
+  await edit.getByRole('checkbox', { name: /^Allow center access/ }).uncheck();
+  const save = edit.getByRole('button', { name: 'Save access', exact: true });
+  await save.scrollIntoViewIfNeeded();
+  const modalBox = await edit.boundingBox();
+  const cancelBox = await edit.getByRole('button', { name: 'Cancel', exact: true }).boundingBox();
+  const saveBox = await save.boundingBox();
+  if (!modalBox || !cancelBox || !saveBox) throw new Error('Missing staff dialog geometry');
+  expect(modalBox.width).toBeLessThanOrEqual(320);
+  expect(modalBox.height).toBeLessThanOrEqual(480);
+  expect(cancelBox.x).toBeLessThan(saveBox.x);
+  expect(Math.abs(cancelBox.y - saveBox.y)).toBeLessThan(2);
+  await page.screenshot({ path: info.outputPath('staff-access-short-screen.png') });
+  await save.click();
+  await expect(edit).toHaveCount(0);
+  expect(control.writes.at(-1)?.body).toEqual({ active: false, role_ids: ['role-0'] });
+  await expect(
+    page.locator('.staff-row').filter({ hasText: name }).getByText('Suspended', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Invite', exact: true }).click();
+  const invite = page.getByRole('dialog', { name: 'Invite staff', exact: true });
+  await expect(invite).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(invite).toHaveCount(0);
+  await page.getByRole('button', { name: 'বাংলা', exact: true }).click();
+  await page.getByRole('button', { name: `কর্মীর অনুমতি ${name}`, exact: true }).click();
+  const translated = page.getByRole('dialog');
+  await expect(translated).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  expect(await translated.evaluate((dialog) => dialog.scrollWidth <= dialog.clientWidth)).toBe(
+    true,
+  );
+  const modalAccessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(modalAccessibility.violations).toEqual([]);
+  await page.screenshot({ path: info.outputPath('staff-access-bangla.png') });
+  await page.keyboard.press('Escape');
+  await expect(translated).toHaveCount(0);
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  control.platform = true;
+  control.noCenters = true;
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Platform', exact: true })).toBeVisible();
+  const controls = await page.locator('.account-controls').boundingBox();
+  if (!controls) throw new Error('Missing platform controls');
+  expect(controls.height).toBeLessThanOrEqual(48);
+  expect(controls.width).toBeLessThanOrEqual(288);
+  await expect(page.getByText('Suspend before deleting.', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Delete center First Coaching', exact: true }),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const accessibility = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page.screenshot({ path: info.outputPath('platform-compact-header.png'), fullPage: true });
+});
+
+test('archived exams are discoverable with explicit archive and restore actions instead of an edit checkbox', async ({
   page,
 }, info) => {
   const control = await fixture(page);
@@ -276,8 +421,8 @@ test('inactive exams are discoverable, filterable and reactivated without losing
     if (route.request().method() === 'PATCH') {
       const exam = exams.find((item) => item.id === 'inactive-a');
       if (!exam) throw new Error('Missing fixture exam');
-      exam.active = 1;
-      exam.version = 2;
+      exam.active = Number((route.request().postDataJSON() as { active: boolean }).active);
+      exam.version++;
       return route.fallback();
     }
     await route.fulfill({ json: { ...exams[0], papers: [], participants: 0, groups: [] } });
@@ -288,31 +433,52 @@ test('inactive exams are discoverable, filterable and reactivated without losing
     'aria-pressed',
     'true',
   );
-  await expect(
-    page.getByRole('heading', { name: 'Inactive fixture exam', exact: true }),
-  ).toBeVisible();
-  await filters.getByRole('button', { name: 'Inactive', exact: true }).click();
+  await expect(page.getByText('Inactive fixture exam', { exact: true })).toBeVisible();
+  await filters.getByRole('button', { name: 'Archived', exact: true }).click();
   await expect(page).toHaveURL(/status=inactive/);
-  await expect(page.getByRole('heading', { name: 'Active fixture exam', exact: true })).toHaveCount(
-    0,
-  );
-  await page.getByRole('link', { name: /Inactive fixture exam/ }).click();
+  await expect(page.getByText('Active fixture exam', { exact: true })).toHaveCount(0);
+  await page
+    .locator('.exam-record .record-row-content')
+    .filter({ hasText: 'Inactive fixture exam' })
+    .click();
   await page.goBack();
-  await expect(filters.getByRole('button', { name: 'Inactive', exact: true })).toHaveAttribute(
+  await expect(filters.getByRole('button', { name: 'Archived', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  await page.getByRole('button', { name: 'Reactivate Inactive fixture exam', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'No inactive exams', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Restore Inactive fixture exam', exact: true }).click();
+  expect(control.writes).toHaveLength(0);
+  await page
+    .getByRole('dialog', { name: 'Restore exam' })
+    .getByRole('button', { name: 'Restore', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: 'No archived exams', exact: true })).toBeVisible();
   expect(control.writes.at(-1)?.body).toMatchObject({
     active: true,
     version: 1,
     name: 'Inactive fixture exam',
   });
-  await filters.getByRole('button', { name: 'Active', exact: true }).click();
+  await filters.getByRole('button', { name: 'Current', exact: true }).click();
+  await expect(page.getByText('Inactive fixture exam', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Archive Inactive fixture exam', exact: true }).click();
+  const archive = page.getByRole('dialog', { name: 'Archive exam' });
+  await expect(archive).toContainText('marks and history are kept');
+  await archive.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(control.writes).toHaveLength(1);
+  await page.getByRole('button', { name: 'Archive Inactive fixture exam', exact: true }).click();
+  await archive.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(page.getByText('Inactive fixture exam', { exact: true })).toHaveCount(0);
+  expect(control.writes.at(-1)?.body).toMatchObject({ active: false, version: 2 });
+  await filters.getByRole('button', { name: 'Archived', exact: true }).click();
+  await page
+    .locator('.exam-record .record-row-content')
+    .filter({ hasText: 'Inactive fixture exam' })
+    .click();
+  await expect(page.getByRole('link', { name: 'Send results', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Inactive fixture exam', exact: true }),
-  ).toBeVisible();
+    page.getByRole('dialog', { name: 'Edit', exact: true }).getByRole('checkbox'),
+  ).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('exam-status-filters.png'), fullPage: true });
 });
@@ -715,7 +881,8 @@ test('platform deletion requires suspension and the typed name, keeps failures r
   await page.goto('/');
   await expect(
     page.getByRole('button', { name: 'Delete center First Coaching', exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
+  await expect(page.getByText('Suspend before deleting.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   const remove = page.getByRole('button', { name: 'Delete center Second Coaching', exact: true });
   await remove.click();
@@ -1519,7 +1686,10 @@ test('cached page visits refresh silently without replacing content or shifting 
     await pending;
     await route.fallback();
   });
-  await page.getByRole('link', { name: /Demo Exam - 1/ }).click();
+  await page
+    .locator('.exam-record .record-row-content')
+    .filter({ hasText: 'Demo Exam - 1' })
+    .click();
   await requested;
   try {
     await expect(page.locator('.query-state[aria-busy="true"]')).toHaveCount(1);
@@ -1706,7 +1876,7 @@ test('page visits revalidate and malformed session responses offer recovery inst
 }) => {
   const control = await fixture(page);
   await page.goto('/exams');
-  await expect(page.getByRole('heading', { name: 'Demo Exam - 1', exact: true })).toBeVisible();
+  await expect(page.getByText('Demo Exam - 1', { exact: true })).toBeVisible();
   const count = control.reads.filter((path) => path.endsWith('/exams')).length;
   await page.getByRole('link', { name: 'Home', exact: true }).click();
   await expect(
@@ -1751,7 +1921,7 @@ test('initial skeletons respect reduced motion and fit the viewport', async ({ p
   } finally {
     release();
   }
-  await expect(page.getByRole('heading', { name: 'Demo Exam - 1', exact: true })).toBeVisible();
+  await expect(page.getByText('Demo Exam - 1', { exact: true })).toBeVisible();
 });
 
 test('sign-in, sign-out and password validation preserve a working session observer', async ({

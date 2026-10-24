@@ -83,14 +83,19 @@ export default function Platform() {
             {centers.data.items.map((center) => (
               <article className="platform-center" key={center.id}>
                 <div className="platform-center-info">
-                  <h2>{center.name}</h2>
-                  <p className="muted">{center.owner_name || t('Awaiting activation')}</p>
-                  <p className="muted">{center.owner_phone}</p>
+                  <div className="platform-center-headline">
+                    <h2>{center.name}</h2>
+                    <span className={`badge ${center.active ? 'accepted' : 'paused'}`}>
+                      {t(center.active ? 'Active' : 'Suspended')}
+                    </span>
+                  </div>
+                  <p className="muted">
+                    {center.owner_name || t('Awaiting activation')}
+                    <span className="center-contact-separator"> · </span>
+                    <span className="center-phone">{center.owner_phone}</span>
+                  </p>
                 </div>
                 <div className="platform-center-actions">
-                  <span className={`badge ${center.active ? 'accepted' : 'paused'}`}>
-                    {t(center.active ? 'Active' : 'Suspended')}
-                  </span>
                   <Button
                     variant="secondary"
                     onClick={() => {
@@ -100,23 +105,24 @@ export default function Platform() {
                   >
                     {t(center.active ? 'Suspend' : 'Restore')}
                   </Button>
-                  <Button
-                    variant="danger"
-                    disabled={Boolean(center.active)}
-                    aria-label={`${t('Delete center')} ${center.name}`}
-                    title={t(
-                      center.active
-                        ? 'Suspend this coaching center before deleting it.'
-                        : 'Delete center',
-                    )}
-                    onClick={() => {
-                      deletion.reset();
-                      setDeleteName('');
-                      setDeleting(center);
-                    }}
-                  >
-                    <Trash2 size={17} />
-                  </Button>
+                  {!center.active && (
+                    <Button
+                      variant="ghost"
+                      className="danger-icon-btn record-icon-action"
+                      aria-label={`${t('Delete center')} ${center.name}`}
+                      title={t('Delete center')}
+                      onClick={() => {
+                        deletion.reset();
+                        setDeleteName('');
+                        setDeleting(center);
+                      }}
+                    >
+                      <Trash2 size={17} />
+                    </Button>
+                  )}
+                  {Boolean(center.active) && (
+                    <small className="muted">{t('Suspend before deleting.')}</small>
+                  )}
                 </div>
               </article>
             ))}

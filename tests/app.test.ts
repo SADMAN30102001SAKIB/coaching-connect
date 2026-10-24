@@ -1050,7 +1050,7 @@ describe('inactive exam discovery and reactivation', () => {
     expect(result.map((item) => item.id)).toEqual(ids);
     expect(second.body['next']).toBeNull();
   });
-  it('requires update permission to reactivate an inactive exam', async () => {
+  it('separates restore and edit permissions from archive permission', async () => {
     const center = uid(),
       user = uid(),
       role = uid(),
@@ -1107,6 +1107,76 @@ describe('inactive exam discovery and reactivation', () => {
         )
       ).status,
     ).toBe(403);
+    await statement(
+      env.DB,
+      'UPDATE roles SET permissions=?,version=version+1 WHERE id=?',
+      JSON.stringify(['exams.read', 'exams.update']),
+      role,
+    ).run();
+    expect(
+      (
+        await call(
+          `/c/${center}/exams/${exam}`,
+          'PATCH',
+          { name: 'Edited archived exam', exam_date: '2026-10-24', version: 1, active: false },
+          session,
+        )
+      ).status,
+    ).toBe(200);
+    expect(await one(env.DB, 'SELECT active,name FROM exams WHERE id=?', exam)).toEqual({
+      active: 0,
+      name: 'Edited archived exam',
+    });
+    expect(
+      (
+        await call(
+          `/c/${center}/exams/${exam}`,
+          'PATCH',
+          { name: 'Edited archived exam', exam_date: '2026-10-24', version: 2, active: true },
+          session,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          `/c/${center}/exams/${exam}`,
+          'PATCH',
+          { name: 'Edited archived exam', exam_date: '2026-10-24', version: 3, active: false },
+          session,
+        )
+      ).status,
+    ).toBe(403);
+    await statement(
+      env.DB,
+      'UPDATE roles SET permissions=?,version=version+1 WHERE id=?',
+      JSON.stringify(['exams.read', 'exams.archive']),
+      role,
+    ).run();
+    expect(
+      (
+        await call(
+          `/c/${center}/exams/${exam}`,
+          'PATCH',
+          { name: 'Unauthorized rename', exam_date: '2026-10-24', version: 3, active: false },
+          session,
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call(
+          `/c/${center}/exams/${exam}`,
+          'PATCH',
+          { name: 'Edited archived exam', exam_date: '2026-10-24', version: 3, active: false },
+          session,
+        )
+      ).status,
+    ).toBe(200);
+    expect(await one(env.DB, 'SELECT active,name FROM exams WHERE id=?', exam)).toEqual({
+      active: 0,
+      name: 'Edited archived exam',
+    });
   });
 });
 

@@ -241,15 +241,17 @@ export function Dialog({
   onClose,
   children,
   refresh,
+  size = 'default',
 }: {
   title: string;
   open: boolean;
   onClose: () => void;
   children: ReactNode;
   refresh?: (() => Promise<unknown>) | undefined;
+  size?: 'default' | 'compact';
 }) {
   return open ? (
-    <OpenDialog title={title} onClose={onClose} refresh={refresh}>
+    <OpenDialog title={title} onClose={onClose} refresh={refresh} size={size}>
       {children}
     </OpenDialog>
   ) : null;
@@ -259,11 +261,13 @@ function OpenDialog({
   onClose,
   children,
   refresh,
+  size,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   refresh?: (() => Promise<unknown>) | undefined;
+  size: 'default' | 'compact';
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const dirty = useRef(false);
@@ -308,6 +312,7 @@ function OpenDialog({
   return (
     <dialog
       ref={ref}
+      className={size === 'compact' ? 'dialog-compact' : undefined}
       onCancel={(event) => {
         event.preventDefault();
         close();

@@ -1,13 +1,37 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const bn: Record<string, string> = {
+  'Your account': 'আপনার অ্যাকাউন্ট',
+  Staff: 'কর্মী',
+  Roles: 'ভূমিকা',
+  'Edit staff access': 'কর্মীর অনুমতি',
+  'Save access': 'প্রবেশাধিকার সংরক্ষণ করুন',
+  'Choose what this person can access in this coaching center.':
+    'এই কোচিং সেন্টারে এই ব্যক্তি কী ব্যবহার করতে পারবেন তা বেছে নিন।',
+  'No roles yet. Create a role to assign access.':
+    'এখনো কোনো ভূমিকা নেই। প্রবেশাধিকার দিতে একটি ভূমিকা তৈরি করুন।',
+  'Allow center access': 'সেন্টারে প্রবেশাধিকার দিন',
+  'Turn off to suspend access to this center only.':
+    'শুধু এই সেন্টারের প্রবেশাধিকার স্থগিত করতে বন্ধ করুন।',
+  'Suspend before deleting.': 'মুছে ফেলার আগে স্থগিত করুন।',
   'Exam status': 'পরীক্ষার অবস্থা',
   'All exams': 'সব পরীক্ষা',
-  Inactive: 'নিষ্ক্রিয়',
-  Reactivate: 'আবার সক্রিয় করুন',
+  Current: 'চলমান',
+  Archived: 'আর্কাইভ করা',
+  Restore: 'ফিরিয়ে আনুন',
+  'Archive exam': 'পরীক্ষা আর্কাইভ করুন',
+  'Restore exam': 'পরীক্ষা ফিরিয়ে আনুন',
+  'Archive this exam? Its marks and history are kept, but it will no longer appear in new-message selectors.':
+    'এই পরীক্ষা আর্কাইভ করবেন? নম্বর ও ইতিহাস রাখা হবে, তবে নতুন বার্তার পরীক্ষা নির্বাচনে এটি আর দেখাবে না।',
+  'Restore this exam? It will be available in new-message selectors again.':
+    'এই পরীক্ষা ফিরিয়ে আনবেন? নতুন বার্তায় পরীক্ষাটি আবার নির্বাচন করা যাবে।',
+  'Archived exam. Marks and history are kept. Restore it to use it in new messages.':
+    'আর্কাইভ করা পরীক্ষা। নম্বর ও ইতিহাস রাখা আছে। নতুন বার্তায় ব্যবহার করতে এটি ফিরিয়ে আনুন।',
+  'Archive or delete exams': 'পরীক্ষা আর্কাইভ বা মুছুন',
+  'Edit or restore exams': 'পরীক্ষা সম্পাদনা বা ফিরিয়ে আনুন',
   'View exam': 'পরীক্ষা দেখুন',
-  'No inactive exams': 'কোনো নিষ্ক্রিয় পরীক্ষা নেই',
-  'No active exams': 'কোনো সক্রিয় পরীক্ষা নেই',
+  'No archived exams': 'কোনো আর্কাইভ করা পরীক্ষা নেই',
+  'No current exams': 'কোনো চলমান পরীক্ষা নেই',
   'No exams yet': 'এখনো কোনো পরীক্ষা নেই',
   'Create your first exam to get started.': 'শুরু করতে আপনার প্রথম পরীক্ষা তৈরি করুন।',
   'Try another status filter to see your exams.': 'পরীক্ষা দেখতে অন্য অবস্থার ফিল্টার বেছে নিন।',

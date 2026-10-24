@@ -6,12 +6,7 @@ import { useLocale } from '../i18n';
 export function PlatformFrame({ action, children }: { action?: ReactNode; children: ReactNode }) {
   return (
     <div className="platform-page">
-      <Page
-        eyebrow="PLATFORM OWNER"
-        title="Coaching centers"
-        description="Provision independent workspaces. Center data stays inside each center."
-        action={action}
-      >
+      <Page title="Coaching centers" action={action}>
         {children}
       </Page>
     </div>
