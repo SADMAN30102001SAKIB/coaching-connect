@@ -512,46 +512,48 @@ function HomePage({ name }: { name: string }) {
               </Link>
             ))}
         </div>
-        <section className="panel">
-          <div className="section-header">
-            <div>
-              <h2>{t('Recent messages')}</h2>
-              <p className="muted">{t('A clear view of your latest updates.')}</p>
+        {permissions.includes('messages.read') && (
+          <section className="panel">
+            <div className="section-header">
+              <div>
+                <h2>{t('Recent messages')}</h2>
+                <p className="muted">{t('A clear view of your latest updates.')}</p>
+              </div>
+              <Link to="/messages">{t('View all')}</Link>
             </div>
-            <Link to="/messages">{t('View all')}</Link>
-          </div>
-          {home.data?.campaigns.length ? (
-            <div className="record-list">
-              {home.data.campaigns.map((campaign) => (
-                <Link className="record-row" key={campaign.id} to={`/messages/${campaign.id}`}>
-                  <span className="record-icon">
-                    <MessageSquareText size={20} />
-                  </span>
-                  <div className="grow">
-                    <strong>{campaign.name}</strong>
-                    <small>
-                      {dateTime(campaign.created_at, center.timezone, locale)} · {campaign.total}{' '}
-                      {t('messages')}
-                    </small>
-                  </div>
-                  <Badge status={campaign.state} />
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <Empty
-              title="No messages yet"
-              description="Your first result update will appear here."
-              action={
-                permissions.includes('messages.create') ? (
-                  <Link className="button secondary" to="/messages/new">
-                    {t('New message')}
+            {home.data?.campaigns.length ? (
+              <div className="record-list">
+                {home.data.campaigns.map((campaign) => (
+                  <Link className="record-row" key={campaign.id} to={`/messages/${campaign.id}`}>
+                    <span className="record-icon">
+                      <MessageSquareText size={20} />
+                    </span>
+                    <div className="grow">
+                      <strong>{campaign.name}</strong>
+                      <small>
+                        {dateTime(campaign.created_at, center.timezone, locale)} · {campaign.total}{' '}
+                        {t('messages')}
+                      </small>
+                    </div>
+                    <Badge status={campaign.state} />
                   </Link>
-                ) : null
-              }
-            />
-          )}
-        </section>
+                ))}
+              </div>
+            ) : (
+              <Empty
+                title="No messages yet"
+                description="Your first result update will appear here."
+                action={
+                  permissions.includes('messages.create') ? (
+                    <Link className="button secondary" to="/messages/new">
+                      {t('New message')}
+                    </Link>
+                  ) : null
+                }
+              />
+            )}
+          </section>
+        )}
       </State>
     </Page>
   );

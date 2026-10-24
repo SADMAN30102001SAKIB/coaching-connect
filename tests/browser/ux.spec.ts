@@ -1,6 +1,22 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('dashboard hides message history and its links without read permission', async ({ page }) => {
+  const control = await fixture(page);
+  control.admin = false;
+  control.deniedPermissions = ['messages.read'];
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Welcome back, Audit Teacher' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recent messages', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'No messages yet', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'View all', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Messages', exact: true })).toHaveCount(0);
+  control.deniedPermissions = [];
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Recent messages', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'View all', exact: true })).toBeVisible();
+});
+
 test('result group choices follow selected exams and announcements keep all groups', async ({
   page,
 }, info) => {
@@ -81,6 +97,7 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
     authenticated: true,
     platform: false,
     admin: true,
+    deniedPermissions: [] as string[],
     displayName: 'Audit Teacher',
     staff: [] as {
       id: string;
@@ -258,7 +275,14 @@ async function fixture(page: Page, extraPermissions: string[] = []) {
             ? null
             : 'center-a',
       });
-    if (path.endsWith('/context')) return json({ center, admin: control.admin, permissions });
+    if (path.endsWith('/context'))
+      return json({
+        center,
+        admin: control.admin,
+        permissions: permissions.filter(
+          (permission) => !control.deniedPermissions.includes(permission),
+        ),
+      });
     if (path.endsWith('/staff')) return json({ items: control.staff, next: null });
     if (path.endsWith('/home')) return json({ students: 2, groups: 1, exams: 1, campaigns: [] });
     if (path.endsWith('/catalog'))
