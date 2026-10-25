@@ -73,19 +73,21 @@ function History() {
         {list.data?.items.length ? (
           <section className="panel flush">
             {list.data.items.map((campaign) => (
-              <div className="record-row" key={campaign.id}>
+              <div className="record-row message-record" key={campaign.id}>
                 <Link className="record-row-content grow" to={`/messages/${campaign.id}`}>
                   <span className="record-icon">
                     <MessageSquareText size={20} />
                   </span>
                   <div className="grow">
-                    <strong>{campaign.name}</strong>
+                    <div className="message-title-line">
+                      <strong title={campaign.name}>{campaign.name}</strong>
+                      <Badge status={campaign.state} />
+                    </div>
                     <small>
                       {dateTime(campaign.created_at, center.timezone, locale)} · {campaign.total}{' '}
                       {t('messages ·')} {campaign.delivered} {t('delivered')}
                     </small>
                   </div>
-                  <Badge status={campaign.state} />
                 </Link>
                 {permissions.includes('messages.cancel') &&
                   !['queued', 'processing'].includes(campaign.state) && (

@@ -698,6 +698,25 @@ select:disabled {
 .record-row:has(.record-row-content:hover) {
   background: var(--surface-hover);
 }
+.message-title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.panel .record-row.message-record .record-row-content .message-title-line strong {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panel .record-row.message-record .record-row-content .message-title-line .badge {
+  flex-shrink: 0;
+  margin-top: 0;
+  font-size: 10px;
+  padding: 2px 5px;
+}
 .record-actions {
   display: flex;
   align-items: center;

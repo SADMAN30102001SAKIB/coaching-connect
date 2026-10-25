@@ -1,6 +1,50 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('message status stays beside short and long titles without increasing row height', async ({
+  page,
+}) => {
+  await fixture(page);
+  const names = [
+    'Model Test - 1',
+    'A very long exam title that must truncate instead of pushing the status chip onto another line',
+  ];
+  await page.route('**/api/c/center-a/campaigns?*', (route) =>
+    route.fulfill({
+      json: {
+        items: names.map((name, index) => ({
+          id: `campaign-${index}`,
+          name,
+          created_at: 1,
+          state: 'completed',
+          total: 3,
+          delivered: 3,
+        })),
+        next: null,
+      },
+    }),
+  );
+  await page.goto('/messages');
+  const rows = page.locator('.message-record');
+  await expect(rows).toHaveCount(2);
+  const heights: number[] = [];
+  for (const row of await rows.all()) {
+    const title = row.locator('strong');
+    const badge = row.locator('.badge');
+    const titleBox = await title.boundingBox();
+    const badgeBox = await badge.boundingBox();
+    if (!titleBox || !badgeBox) throw new Error('Missing title or chip');
+    expect(
+      Math.abs(titleBox.y + titleBox.height / 2 - badgeBox.y - badgeBox.height / 2),
+    ).toBeLessThan(2);
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(badgeBox.x);
+    await expect(title).toHaveCSS('text-overflow', 'ellipsis');
+    heights.push((await row.boundingBox())!.height);
+  }
+  expect(Math.abs(heights[0]! - heights[1]!)).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('profile avatar opens settings', async ({ page }) => {
   await fixture(page);
   await page.goto('/');
