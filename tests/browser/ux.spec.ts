@@ -1721,6 +1721,87 @@ test('platform center cards, pagination and collapsed recovery preserve their wo
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('personalized messages can be edited before approval with updated estimates', async ({
+  page,
+}, info) => {
+  await fixture(page, ['messages.create', 'messages.send', 'messages.read_content']);
+  let body = 'Original result';
+  let segments = 1;
+  let state = 'ready_for_review';
+  let saves = 0;
+  await page.route('**/api/c/center-a/campaigns/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === 'PUT') {
+      const input = route.request().postDataJSON() as { body: string; original_body: string };
+      expect(input.original_body).toBe(body);
+      body = input.body;
+      segments = 3;
+      saves++;
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (path.endsWith('/approve')) {
+      state = 'scheduled';
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({
+      json: path.endsWith('/messages')
+        ? {
+            items: [
+              {
+                id: 'message-a',
+                student_name: 'Fixture Student',
+                phone: '8801700000013',
+                body,
+                segments,
+                state: 'pending',
+                provider_id: null,
+                reason: null,
+              },
+            ],
+            next: null,
+          }
+        : {
+            id: 'review-a',
+            name: 'Editable review',
+            state,
+            total: 1,
+            estimated_segments: segments,
+            excluded: 0,
+            submitted: 0,
+            delivered: 0,
+            failed: 0,
+            unknown: 0,
+            skipped: 0,
+            delivery_checking: 0,
+            delivery_unconfirmed: 0,
+          },
+    });
+  });
+  await page.goto('/messages/review-a');
+  await page.getByRole('button', { name: 'Edit message', exact: true }).click();
+  let editor = page.getByRole('dialog', { name: 'Edit message', exact: true });
+  await editor.getByLabel('Message', { exact: true }).fill('Cancelled change');
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(saves).toBe(0);
+  await expect(page.locator('.message-text')).toHaveText('Original result');
+  await page.getByRole('button', { name: 'Edit message', exact: true }).click();
+  editor = page.getByRole('dialog', { name: 'Edit message', exact: true });
+  await editor.getByLabel('Message', { exact: true }).fill('বাংলা English '.repeat(12));
+  await expect(page.getByRole('button', { name: 'Send messages', exact: true })).toBeDisabled();
+  await page.screenshot({ path: info.outputPath('message-editor.png'), fullPage: true });
+  await editor.getByRole('button', { name: 'Save message', exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  expect(saves).toBe(1);
+  await expect(page.locator('.message-text')).toHaveText(body);
+  await page.getByRole('button', { name: 'Send messages', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Estimated cost: ৳1.05');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Confirm sending', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Edit message', exact: true })).toHaveCount(0);
+});
+
 test('message review offers clear timing choices and still requires final approval', async ({
   page,
 }, info) => {
@@ -1752,6 +1833,7 @@ test('message review offers clear timing choices and still requires final approv
         : {
             id: 'review-a',
             name: 'Fixture review',
+            estimated_segments: 7,
             state: 'ready_for_review',
             created_at: 1,
             scheduled_at: null,
@@ -1792,6 +1874,9 @@ test('message review offers clear timing choices and still requires final approv
     .analyze();
   expect(accessibility.violations).toEqual([]);
   await review.getByRole('button', { name: 'Schedule messages', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Estimated SMS segments: 7');
+  await expect(page.getByRole('dialog')).toContainText('Estimated cost: ৳2.45');
+  await expect(page.getByRole('dialog')).not.toContainText('Pending/absent');
   expect(control.writes).toHaveLength(0);
   await page
     .getByRole('dialog')
@@ -1806,6 +1891,7 @@ test('message review offers clear timing choices and still requires final approv
   await expect(review.getByLabel('Send date and time', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('message-review-now.png'), fullPage: true });
   await review.getByRole('button', { name: 'Send messages', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Estimated cost: ৳2.45');
   expect(control.writes).toHaveLength(1);
   await page
     .getByRole('dialog')

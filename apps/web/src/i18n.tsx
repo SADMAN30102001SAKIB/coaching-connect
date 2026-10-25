@@ -437,6 +437,16 @@ const bn: Record<string, string> = {
   'Send now': 'এখনই পাঠান',
   'Schedule send': 'পরে পাঠান',
   'Confirm sending': 'পাঠানো নিশ্চিত করুন',
+  'Edit message': 'বার্তা সম্পাদনা',
+  'Save message': 'বার্তা সংরক্ষণ',
+  'Only this outgoing message changes. Recorded marks and saved templates stay unchanged.':
+    'শুধু এই পাঠানোর বার্তাটি বদলাবে। সংরক্ষিত নম্বর ও টেমপ্লেট অপরিবর্তিত থাকবে।',
+  'This message changed or is no longer editable. Refresh the campaign and review it again.':
+    'বার্তাটি বদলেছে অথবা এখন আর সম্পাদনা করা যাবে না। ক্যাম্পেইন রিফ্রেশ করে আবার দেখুন।',
+  'Estimated SMS segments': 'আনুমানিক এসএমএস সেগমেন্ট',
+  'Estimated cost': 'আনুমানিক খরচ',
+  'Based on ৳0.35 per segment. Final charges depend on the provider.':
+    'প্রতি সেগমেন্ট ৳০.৩৫ হিসেবে। চূড়ান্ত খরচ সেবাদাতা নির্ধারণ করে।',
   'Confirm schedule': 'সময়সূচি নিশ্চিত করুন',
   Delivered: 'পৌঁছেছে',
   Accepted: 'গৃহীত',

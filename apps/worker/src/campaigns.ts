@@ -165,10 +165,14 @@ campaigns.get('/', async (c) => {
 campaigns.get('/:id', async (c) => {
   const a = requirePermission(c, 'messages.read');
   const item = await one<
-    StoredCampaign & { delivery_checking: number; delivery_unconfirmed: number }
+    StoredCampaign & {
+      delivery_checking: number;
+      delivery_unconfirmed: number;
+      estimated_segments: number;
+    }
   >(
     c.env.DB,
-    "SELECT c.*,(SELECT COUNT(*) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id AND m.state='accepted' AND m.next_check_at IS NOT NULL AND m.submitted_at>?) AS delivery_checking,(SELECT COUNT(*) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id AND m.state='accepted' AND (m.next_check_at IS NULL OR m.submitted_at<=?)) AS delivery_unconfirmed FROM campaigns c WHERE c.center_id=? AND c.id=? AND c.state!='purging'",
+    "SELECT c.*,(SELECT COALESCE(SUM(m.segments),0) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id) AS estimated_segments,(SELECT COUNT(*) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id AND m.state='accepted' AND m.next_check_at IS NOT NULL AND m.submitted_at>?) AS delivery_checking,(SELECT COUNT(*) FROM messages m WHERE m.center_id=c.center_id AND m.campaign_id=c.id AND m.state='accepted' AND (m.next_check_at IS NULL OR m.submitted_at<=?)) AS delivery_unconfirmed FROM campaigns c WHERE c.center_id=? AND c.id=? AND c.state!='purging'",
     now() - 86400000,
     now() - 86400000,
     a.center.id,
@@ -207,6 +211,37 @@ campaigns.get('/:id/exclusions', async (c) => {
   const more = items.length > 50;
   if (more) items.pop();
   return c.json({ items, next: more ? items.at(-1)?.student_id : null });
+});
+campaigns.put('/:id/messages/:message', async (c) => {
+  const a = requirePermission(c, 'messages.create');
+  requirePermission(c, 'messages.read_content');
+  const input = z
+    .object({
+      body: z
+        .string()
+        .min(1)
+        .max(4000)
+        .refine((value) => value.trim().length > 0, 'The message cannot be empty'),
+      original_body: z.string().min(1).max(4000),
+    })
+    .parse(await c.req.json());
+  const saved = await one<{ id: string }>(
+    c.env.DB,
+    "UPDATE messages SET body=?,segments=? WHERE center_id=? AND campaign_id=? AND id=? AND body=? AND state='pending' AND provider_id IS NULL AND EXISTS(SELECT 1 FROM campaigns c WHERE c.center_id=messages.center_id AND c.id=messages.campaign_id AND c.state='ready_for_review') RETURNING id",
+    input.body,
+    estimateSegments(input.body).segments,
+    a.center.id,
+    c.req.param('id'),
+    c.req.param('message'),
+    input.original_body,
+  );
+  assert(
+    saved,
+    'MESSAGE_CHANGED',
+    'This message changed or is no longer editable. Refresh the campaign and review it again.',
+    409,
+  );
+  return c.json({ ok: true });
 });
 campaigns.post('/:id/approve', async (c) => {
   const input = z.object({ scheduled_at: z.number().int().nullable() }).parse(await c.req.json());

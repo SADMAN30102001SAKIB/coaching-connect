@@ -1654,10 +1654,67 @@ describe('academic records and sending', () => {
     const preview = await call(`/c/${centerId}/campaigns/${campaign}`);
     expect(preview.body.state).toBe('ready_for_review');
     expect(preview.body.total).toBe(1);
+    const segmentTotal = await one<{ segments: number }>(
+      env.DB,
+      'SELECT COALESCE(SUM(segments),0) AS segments FROM messages WHERE center_id=? AND campaign_id=?',
+      centerId,
+      campaign,
+    );
+    expect(preview.body.estimated_segments).toBe(segmentTotal?.segments);
+    const prepared = await rows<{ id: string; body: string }>(
+      env.DB,
+      'SELECT id,body FROM messages WHERE center_id=? AND campaign_id=?',
+      centerId,
+      campaign,
+    );
+    const message = prepared[0];
+    if (!message) throw new Error('Missing prepared message');
+    const editPath = `/c/${centerId}/campaigns/${campaign}/messages/${message.id}`;
+    expect((await call(editPath, 'PUT', { body: '   ', original_body: message.body })).status).toBe(
+      422,
+    );
+    const editedBody = 'বাংলা English '.repeat(12);
+    expect(
+      (await call(editPath, 'PUT', { body: editedBody, original_body: message.body })).status,
+    ).toBe(200);
+    expect(
+      (await call(editPath, 'PUT', { body: 'Stale change', original_body: message.body })).status,
+    ).toBe(409);
+    expect(
+      (
+        await call(`/c/${centerId}/campaigns/${campaign}/messages/missing`, 'PUT', {
+          body: 'Change',
+          original_body: message.body,
+        })
+      ).status,
+    ).toBe(409);
+    const edited = await one<{ body: string; segments: number }>(
+      env.DB,
+      'SELECT body,segments FROM messages WHERE id=?',
+      message.id,
+    );
+    expect(edited).toEqual({ body: editedBody, segments: estimateSegments(editedBody).segments });
+    expect((await call(`/c/${centerId}/campaigns/${campaign}`)).body.estimated_segments).toBe(
+      estimateSegments(editedBody).segments,
+    );
+    expect(
+      (
+        await one<{ score: number }>(
+          env.DB,
+          'SELECT score FROM results WHERE center_id=? AND paper_id=? AND student_id=?',
+          centerId,
+          paper,
+          student,
+        )
+      )?.score,
+    ).toBe(0);
     expect(
       (await call(`/c/${centerId}/campaigns/${campaign}/approve`, 'POST', { scheduled_at: null }))
         .status,
     ).toBe(200);
+    expect(
+      (await call(editPath, 'PUT', { body: 'Too late', original_body: editedBody })).status,
+    ).toBe(409);
     await processJob(bindings, campaign);
     await processJob(bindings, campaign);
     const messages = await rows<{ state: string; provider_id: string }>(

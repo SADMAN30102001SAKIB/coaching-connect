@@ -528,6 +528,7 @@ function Compose() {
   );
 }
 interface CampaignData extends Campaign {
+  estimated_segments: number;
   selection: unknown;
   scheduled_timezone: string;
   delivery_checking: number;
@@ -580,6 +581,9 @@ function CampaignDetail() {
   const [localError, setLocalError] = useState<unknown>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [showExclusions, setShowExclusions] = useState(false);
+  const edit = useAction();
+  const [editing, setEditing] = useState<{ message: Message; body: string } | null>(null);
+  const editUnsaved = useUnsaved(editing !== null);
   const [exclusionCursor, setExclusionCursor] = useState('');
   const exclusions = useData<Paged<{ student_id: string; student_name: string; reason: string }>>(
     `/campaigns/${id}/exclusions?cursor=${exclusionCursor}`,
@@ -720,6 +724,7 @@ function CampaignDetail() {
                   <Button
                     className="send-review-submit"
                     disabled={
+                      editing !== null ||
                       !item.total ||
                       (scheduled && !date) ||
                       !permissions.includes(scheduled ? 'messages.schedule' : 'messages.send')
@@ -786,6 +791,19 @@ function CampaignDetail() {
                             <Badge status={message.state} />
                           </div>
                           <p className="message-text">{message.body}</p>
+                          {item.state === 'ready_for_review' &&
+                            message.state === 'pending' &&
+                            permissions.includes('messages.create') && (
+                              <Button
+                                variant="secondary"
+                                onClick={() => {
+                                  edit.reset();
+                                  setEditing({ message, body: message.body });
+                                }}
+                              >
+                                {t('Edit message')}
+                              </Button>
+                            )}
                           <small>
                             {message.segments} {t('estimated segments')}
                             {message.provider_id?.startsWith('mock-')
@@ -876,6 +894,75 @@ function CampaignDetail() {
                 </div>
               </section>
             )}
+            {editUnsaved.prompt}
+            <Dialog
+              title="Edit message"
+              open={editing !== null}
+              onClose={() => {
+                if (!edit.isPending) setEditing(null);
+              }}
+            >
+              {editing && (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    edit.mutate(
+                      {
+                        path: `/campaigns/${id}/messages/${editing.message.id}`,
+                        method: 'PUT',
+                        body: { body: editing.body, original_body: editing.message.body },
+                      },
+                      {
+                        onSuccess: () => {
+                          void Promise.all([campaign.refetch(), messages.refetch()]).then(() => {
+                            setEditing(null);
+                          });
+                        },
+                      },
+                    );
+                  }}
+                >
+                  <p>
+                    {editing.message.student_name} · {editing.message.phone}
+                  </p>
+                  <p className="muted">
+                    {t(
+                      'Only this outgoing message changes. Recorded marks and saved templates stay unchanged.',
+                    )}
+                  </p>
+                  <Field label="Message">
+                    <textarea
+                      value={editing.body}
+                      onChange={(event) => setEditing({ ...editing, body: event.target.value })}
+                      rows={8}
+                      maxLength={4000}
+                      required
+                      disabled={edit.isPending}
+                    />
+                  </Field>
+                  <small>
+                    {estimateSegments(editing.body).segments} {t('estimated segments')}
+                  </small>
+                  <Alert error={edit.error} />
+                  <div className="actions">
+                    <Button
+                      variant="secondary"
+                      disabled={edit.isPending}
+                      onClick={() => setEditing(null)}
+                    >
+                      {t('Cancel')}
+                    </Button>
+                    <Button
+                      type="submit"
+                      busy={edit.isPending}
+                      disabled={!editing.body.trim() || item.state !== 'ready_for_review'}
+                    >
+                      {t('Save message')}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </Dialog>
             <Dialog
               title={
                 confirm === 'send'
@@ -891,15 +978,34 @@ function CampaignDetail() {
               open={confirm !== null}
               onClose={() => setConfirm(null)}
             >
-              <p>
-                {confirm === 'send'
-                  ? `Approve ${item.total} personalized messages? This uses your center’s SMS balance. Pending/absent records and shared numbers must be reviewed before sending.`
-                  : confirm === 'retry'
+              {confirm === 'send' ? (
+                <div>
+                  <p>
+                    {t('Messages')}: {item.total} · {t('Estimated SMS segments')}:{' '}
+                    {item.estimated_segments}
+                  </p>
+                  <p>
+                    <strong>
+                      {t('Estimated cost')}: ৳
+                      {new Intl.NumberFormat(locale, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      }).format((item.estimated_segments * 35) / 100)}
+                    </strong>
+                  </p>
+                  <p className="muted">
+                    {t('Based on ৳0.35 per segment. Final charges depend on the provider.')}
+                  </p>
+                </div>
+              ) : (
+                <p>
+                  {confirm === 'retry'
                     ? 'An uncertain message may already have reached the recipient. Sending again can deliver and charge twice. A new reviewable campaign will be created for only the selected messages.'
                     : confirm === 'cancel'
                       ? t('Stop unsent messages? Already submitted messages cannot be recalled.')
                       : 'Are you sure you want to permanently delete this message campaign and all its message records? This cannot be undone.'}
-              </p>
+                </p>
+              )}
               <Alert error={action.error ?? retry.error ?? localError} />
               <div className="actions">
                 <Button variant="secondary" onClick={() => setConfirm(null)}>
@@ -907,6 +1013,7 @@ function CampaignDetail() {
                 </Button>
                 <Button
                   busy={action.isPending || retry.isPending}
+                  disabled={confirm === 'send' && editing !== null}
                   variant={confirm === 'delete' || confirm === 'cancel' ? 'danger' : 'primary'}
                   onClick={() => {
                     if (confirm === 'delete') {
