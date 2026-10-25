@@ -22,7 +22,7 @@ import {
   type Paper,
   type ResultStatus,
 } from '@coaching/domain';
-import { formText, useAction, useCenter, useData, useChoices } from '../api';
+import { formText, useAction, useCenter, useData, useChoices, resetInputError } from '../api';
 import { useLocale } from '../i18n';
 import {
   Alert,
@@ -324,7 +324,11 @@ function CreateExam() {
       {unsaved.prompt}
       <form
         className="form-stack"
-        onChange={() => setDirty(true)}
+        onChange={() => {
+          resetInputError(action);
+          setError(null);
+          setDirty(true);
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
@@ -899,7 +903,10 @@ function ExamEditor({
   return (
     <form
       key={initial.version}
-      onChange={() => setDirty(true)}
+      onChange={() => {
+        resetInputError(action);
+        setDirty(true);
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -955,7 +962,11 @@ function PaperEditor({
   return (
     <form
       key={paper?.version ?? 'new'}
-      onChange={() => setDirty(true)}
+      onChange={() => {
+        resetInputError(action);
+        setError(undefined);
+        setDirty(true);
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         const f = new FormData(event.currentTarget);
@@ -1162,6 +1173,10 @@ function MarksForm({
         </div>
       )}
       <form
+        onChange={() => {
+          resetInputError(action);
+          setError(null);
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);

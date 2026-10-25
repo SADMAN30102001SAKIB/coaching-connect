@@ -70,6 +70,140 @@ test('subject preview requires a subject but keeps groups optional', async ({ pa
   await expect(preview).toBeEnabled();
 });
 
+test('student corrections clear validation errors but retain permission, conflict and service errors', async ({
+  page,
+}) => {
+  await fixture(page);
+  let status = 422;
+  await page.route('**/api/c/center-a/students', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({
+          status,
+          json: { error: { code: 'FIXTURE_ERROR', message: 'Fixture save error' } },
+        })
+      : route.fallback(),
+  );
+  await page.goto('/students/new');
+  await page.getByLabel('Name', { exact: true }).fill('Teacher draft');
+  await page.getByLabel('Phone number', { exact: true }).fill('01734567891');
+  for (const nextStatus of [422, 403, 409, 503]) {
+    status = nextStatus;
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const error = page.getByRole('alert').filter({ hasText: 'Fixture save error' });
+    await expect(error).toBeVisible();
+    await page.getByLabel('Phone number', { exact: true }).fill(`0173456789${nextStatus % 10}`);
+    if (status === 422) await expect(error).toHaveCount(0);
+    else await expect(error).toBeVisible();
+  }
+});
+
+for (const form of ['composer', 'template', 'marks', 'settings', 'security'] as const) {
+  test(`${form} input corrections clear old validation errors`, async ({ page }) => {
+    await fixture(page, ['messages.create']);
+    const paths = {
+      composer: '/messages/new?exam=exam-a',
+      template: '/templates',
+      marks: '/exams/exam-a/marks/paper-a',
+      settings: '/settings',
+      security: '/security',
+    };
+    const writes = {
+      composer: '/campaigns',
+      template: '/templates',
+      marks: '/marks',
+      settings: '/settings',
+      security: '/auth/security',
+    };
+    await page.route('**/api/**', (route) =>
+      route.request().method() !== 'GET' &&
+      new URL(route.request().url()).pathname.endsWith(writes[form])
+        ? route.fulfill({
+            status: form === 'security' ? 401 : 422,
+            json: {
+              error: {
+                code: form === 'security' ? 'PASSWORD_INCORRECT' : 'VALIDATION_FAILED',
+                message: 'Correct this fixture input',
+              },
+            },
+          })
+        : route.fallback(),
+    );
+    await page.goto(paths[form]);
+    if (form === 'template')
+      await page.getByRole('button', { name: 'Create template', exact: true }).click();
+    const labels = {
+      composer: 'Message',
+      template: 'Message',
+      marks: 'Marks for Ayesha',
+      settings: 'Center name',
+      security: 'Current password',
+    };
+    const input = page.getByLabel(labels[form], { exact: true });
+    if (form === 'template')
+      await page.getByLabel('Template name', { exact: true }).fill('Fixture template');
+    await input.fill(form === 'marks' ? '70' : 'Fixture input');
+    const buttons = {
+      composer: 'Prepare preview',
+      template: 'Save',
+      marks: 'Save marks',
+      settings: 'Save changes',
+      security: 'Save changes',
+    };
+    await page.getByRole('button', { name: buttons[form], exact: true }).click();
+    const error = page.getByRole('alert').filter({ hasText: 'Correct this fixture input' });
+    await expect(error).toBeVisible();
+    await input.fill(form === 'marks' ? '75' : 'Corrected fixture input');
+    await expect(error).toHaveCount(0);
+    await expect(input).toHaveValue(form === 'marks' ? '75' : 'Corrected fixture input');
+    if (form === 'marks') {
+      await input.fill('invalid');
+      await page.getByRole('button', { name: 'Save marks', exact: true }).click();
+      await expect(page.getByRole('alert')).toContainText('Enter a positive number');
+      await input.fill('76');
+      await expect(page.getByRole('alert')).toHaveCount(0);
+    }
+  });
+}
+
+test('SMS account input corrections clear only its own validation error and reopening starts clean', async ({
+  page,
+}) => {
+  await fixture(page, ['provider.manage']);
+  await page.route('**/api/c/center-a/provider', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({
+          json: {
+            configured: true,
+            suffix: 'test',
+            sender_ids: ['8801700000013'],
+            batch_size: 1,
+            interval_seconds: 2,
+            mode: 'mock',
+          },
+        })
+      : route.fulfill({
+          status: 422,
+          json: { error: { code: 'VALIDATION_FAILED', message: 'Correct SMS settings' } },
+        }),
+  );
+  await page.goto('/settings');
+  await page.getByRole('button', { name: 'Replace account settings', exact: true }).click();
+  await page.getByLabel('API key', { exact: true }).fill('fixture-not-a-real-api-key');
+  await page.getByRole('button', { name: 'Save SMS account', exact: true }).click();
+  const error = page.getByRole('alert').filter({ hasText: 'Correct SMS settings' });
+  await expect(error).toBeVisible();
+  await page.getByLabel('Center name', { exact: true }).fill('Changed center name');
+  await expect(error).toBeVisible();
+  await page.getByLabel('Sender IDs', { exact: true }).fill('8801700000014');
+  await expect(error).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save SMS account', exact: true }).click();
+  await expect(error).toBeVisible();
+  const form = page.getByLabel('API key', { exact: true }).locator('..').locator('..');
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Replace account settings', exact: true }).click();
+  await expect(error).toHaveCount(0);
+});
+
 test('profile avatar opens settings', async ({ page }) => {
   await fixture(page);
   await page.goto('/');
@@ -1368,14 +1502,161 @@ test('platform reload never flashes a coaching sidebar and center creation omits
   await expect(form.getByLabel('Center name', { exact: true })).toBeVisible();
   await expect(form.getByLabel('Phone number', { exact: true })).toBeVisible();
   await form.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  if (info.project.use.isMobile) {
+    await page.getByRole('button', { name: 'Account actions', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Account actions', exact: true })
+      .getByRole('link', { name: 'Settings', exact: true })
+      .click();
+  } else {
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  }
+  await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByLabel('Display name', { exact: true })).toBeVisible();
   if (info.project.use.isMobile) {
     const heading = await page.locator('.account-header h1').boundingBox();
-    if (!heading) throw new Error('Missing account heading');
-    expect(heading.width).toBeGreaterThan(250);
+    const controls = await page.locator('.account-controls').boundingBox();
+    if (!heading || !controls) throw new Error('Missing account header geometry');
+    expect(heading.x + heading.width).toBeLessThanOrEqual(controls.x);
+    expect(controls.y).toBeLessThan(heading.y + heading.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
   }
   await page.screenshot({ path: info.outputPath('platform-settings.png'), fullPage: true });
+});
+
+test('active campaign and message cards poll every five seconds rather than every second', async ({
+  page,
+}) => {
+  await fixture(page, ['messages.read_content']);
+  let campaignReads = 0;
+  let messageReads = 0;
+  await page.route('**/api/c/center-a/campaigns/polling-a', (route) => {
+    campaignReads++;
+    return route.fulfill({
+      json: {
+        id: 'polling-a',
+        name: 'Polling campaign',
+        state: 'processing',
+        total: 1,
+        submitted: 0,
+        delivered: 0,
+        failed: 0,
+        unknown: 0,
+        skipped: 0,
+        excluded: 0,
+        delivery_checking: 0,
+        delivery_unconfirmed: 0,
+      },
+    });
+  });
+  await page.route('**/api/c/center-a/campaigns/polling-a/messages?*', (route) => {
+    messageReads++;
+    return route.fulfill({
+      json: {
+        items: [
+          {
+            id: 'polling-message',
+            student_name: 'Fixture Student',
+            phone: '8801700000013',
+            body: 'Polling fixture',
+            state: 'pending',
+            segments: 1,
+          },
+        ],
+        next: null,
+      },
+    });
+  });
+  await page.goto('/messages/polling-a');
+  await expect(page.locator('.message-text')).toHaveText('Polling fixture');
+  await expect(page.locator('.query-state[aria-busy="true"]')).toHaveCount(0);
+  const initialCampaign = campaignReads;
+  const initialMessages = messageReads;
+  const started = Date.now();
+  const intervals = await Promise.all([
+    page
+      .waitForRequest((request) => new URL(request.url()).pathname.endsWith('/campaigns/polling-a'))
+      .then(() => Date.now() - started),
+    page
+      .waitForRequest((request) =>
+        new URL(request.url()).pathname.endsWith('/campaigns/polling-a/messages'),
+      )
+      .then(() => Date.now() - started),
+  ]);
+  for (const elapsed of intervals) expect(elapsed).toBeGreaterThanOrEqual(4000);
+  await expect.poll(() => campaignReads).toBe(initialCampaign + 1);
+  await expect.poll(() => messageReads).toBe(initialMessages + 1);
+});
+
+test('refresh shows loading only on the requested message card', async ({ page }) => {
+  await fixture(page, ['messages.read_content']);
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requests: string[] = [];
+  await page.route('**/api/c/center-a/campaigns/refresh-a**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === 'POST') {
+      requests.push(path);
+      await gate;
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({
+      json: path.endsWith('/messages')
+        ? {
+            items: ['first', 'second'].map((id) => ({
+              id,
+              student_name: id,
+              phone: '8801700000013',
+              body: `Message ${id}`,
+              state: 'accepted',
+              segments: 1,
+              provider_id: `provider-${id}`,
+            })),
+            next: null,
+          }
+        : {
+            id: 'refresh-a',
+            name: 'Refresh campaign',
+            state: 'completed',
+            total: 2,
+            submitted: 2,
+            delivered: 0,
+            failed: 0,
+            unknown: 0,
+            skipped: 0,
+            excluded: 0,
+            delivery_checking: 0,
+            delivery_unconfirmed: 2,
+          },
+    });
+  });
+  await page.goto('/messages/refresh-a');
+  const cards = page.locator('.message-card');
+  const first = cards
+    .filter({ hasText: 'Message first' })
+    .getByRole('button', { name: 'Refresh', exact: true });
+  const second = cards
+    .filter({ hasText: 'Message second' })
+    .getByRole('button', { name: 'Refresh', exact: true });
+  await first.click();
+  try {
+    await expect(first).toHaveAttribute('aria-busy', 'true');
+    await expect(second).toHaveAttribute('aria-busy', 'false');
+    await expect(second.locator('.spin')).toHaveCount(0);
+    await expect(second).toBeDisabled();
+    await expect
+      .poll(() => requests)
+      .toEqual(['/api/c/center-a/campaigns/refresh-a/messages/first/refresh']);
+  } finally {
+    release();
+  }
+  await expect(first).toHaveAttribute('aria-busy', 'false');
+  await expect(first).toBeEnabled();
+  await expect(second).toBeEnabled();
 });
 
 test('expired delivery checks stop dashboard polling and final delivery counters refresh message badges', async ({
@@ -1754,9 +2035,17 @@ test('personalized messages can be edited before approval with updated estimates
   let segments = 1;
   let state = 'ready_for_review';
   let saves = 0;
+  let rejectEdit = true;
   await page.route('**/api/c/center-a/campaigns/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === 'PUT') {
+      if (rejectEdit) {
+        rejectEdit = false;
+        return route.fulfill({
+          status: 422,
+          json: { error: { code: 'VALIDATION_FAILED', message: 'Correct this message' } },
+        });
+      }
       const input = route.request().postDataJSON() as { body: string; original_body: string };
       expect(input.original_body).toBe(body);
       body = input.body;
@@ -1814,6 +2103,10 @@ test('personalized messages can be edited before approval with updated estimates
   await editor.getByLabel('Message', { exact: true }).fill('বাংলা English '.repeat(12));
   await expect(page.getByRole('button', { name: 'Send messages', exact: true })).toBeDisabled();
   await page.screenshot({ path: info.outputPath('message-editor.png'), fullPage: true });
+  await editor.getByRole('button', { name: 'Save message', exact: true }).click();
+  await expect(editor.getByRole('alert')).toContainText('Correct this message');
+  await editor.getByLabel('Message', { exact: true }).fill('বাংলা English '.repeat(12) + '!');
+  await expect(editor.getByRole('alert')).toHaveCount(0);
   await editor.getByRole('button', { name: 'Save message', exact: true }).click();
   await expect(editor).toHaveCount(0);
   expect(saves).toBe(1);

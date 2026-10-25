@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { formText, request } from '../api';
+import { formText, request, resetInputError } from '../api';
 import { RecoveryCodes } from '../auth-screen';
 import { useLocale } from '../i18n';
 import { Alert, Button, Field, Page } from '../ui';
@@ -26,6 +26,7 @@ export default function Security() {
             )}
           </p>
           <form
+            onChange={() => resetInputError(action)}
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);

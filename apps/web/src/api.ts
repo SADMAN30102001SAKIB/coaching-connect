@@ -19,6 +19,13 @@ export class ApiError extends Error {
   }
 }
 let unauthorizedHandler: (() => void) | null = null;
+export function resetInputError(action: { error: unknown; reset: () => void }) {
+  if (
+    action.error instanceof ApiError &&
+    ([400, 422].includes(action.error.status) || action.error.code === 'PASSWORD_INCORRECT')
+  )
+    action.reset();
+}
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
 }

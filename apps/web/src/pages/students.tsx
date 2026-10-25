@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router';
 import { Plus, Search, Trash2, Users, Send } from 'lucide-react';
 import type { Catalog, Contact, Page as Paged, Student } from '@coaching/domain';
-import { useAction, useCenter, useData, useChoices } from '../api';
+import { useAction, useCenter, useData, useChoices, resetInputError } from '../api';
 import { useLocale } from '../i18n';
 import {
   Alert,
@@ -452,6 +452,7 @@ function StudentForm({ initial: incoming }: { initial?: Detail }) {
   const navigate = useNavigate();
   const writable = permissions.includes(`students.${initial ? 'update' : 'create'}`);
   const updateContact = (index: number, patch: Partial<(typeof contacts)[number]>) => {
+    resetInputError(action);
     setContacts((all) => all.map((c, i) => (i === index ? { ...c, ...patch } : c)));
     setDirty(true);
   };
@@ -461,7 +462,10 @@ function StudentForm({ initial: incoming }: { initial?: Detail }) {
       <form
         key={initial?.version ?? 'new'}
         className="form-stack"
-        onChange={() => setDirty(true)}
+        onChange={() => {
+          resetInputError(action);
+          setDirty(true);
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           const form = new FormData(e.currentTarget);
@@ -585,6 +589,7 @@ function StudentForm({ initial: incoming }: { initial?: Detail }) {
                   items={available.data.items}
                   selected={groups}
                   onChange={(next) => {
+                    resetInputError(action);
                     setGroups(next);
                     setDirty(true);
                   }}

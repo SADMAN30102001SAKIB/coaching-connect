@@ -14,7 +14,7 @@ import {
   type Template,
   type TemplateScope,
 } from '@coaching/domain';
-import { request, useAction, useCenter, useData, useChoices } from '../api';
+import { request, useAction, useCenter, useData, useChoices, resetInputError } from '../api';
 import { useLocale } from '../i18n';
 import {
   Alert,
@@ -232,7 +232,10 @@ function Compose() {
       {unsaved.prompt}
       <form
         className="compose-layout"
-        onChange={() => setDirty(true)}
+        onChange={() => {
+          resetInputError(action);
+          setDirty(true);
+        }}
         onSubmit={(e) => {
           e.preventDefault();
           const computedName = (() => {
@@ -327,6 +330,7 @@ function Compose() {
                   items={exams.data?.items ?? []}
                   selected={selectedExams}
                   onChange={(next) => {
+                    resetInputError(action);
                     setSelectedExams(next);
                     setSelectedGroups([]);
                     setPaper('');
@@ -421,6 +425,7 @@ function Compose() {
                       items={examGroups.every((query) => query.isSuccess) ? groupOptions : []}
                       selected={selectedGroups}
                       onChange={(next) => {
+                        resetInputError(action);
                         setSelectedGroups(next);
                         setDirty(true);
                       }}
@@ -546,7 +551,7 @@ function CampaignDetail() {
   const cursor = params.get('cursor') ?? '';
   const campaign = useData<CampaignData>(`/campaigns/${id}`, true, (data) =>
     !data || ['preparing', 'queued', 'processing'].includes(data.state)
-      ? 1000
+      ? 5000
       : data.state === 'scheduled'
         ? 60000
         : data.delivery_checking > 0
@@ -557,7 +562,7 @@ function CampaignDetail() {
     `/campaigns/${id}/messages?cursor=${cursor}`,
     permissions.includes('messages.read_content'),
     campaign.data?.state === 'preparing' || campaign.data?.state === 'processing'
-      ? 1000
+      ? 5000
       : campaign.data && campaign.data.delivery_checking > 0
         ? 60000
         : undefined,
@@ -836,7 +841,12 @@ function CampaignDetail() {
                           {message.state === 'accepted' && (
                             <Button
                               variant="ghost"
-                              busy={action.isPending}
+                              busy={
+                                action.isPending &&
+                                action.variables?.path ===
+                                  `/campaigns/${id}/messages/${message.id}/refresh`
+                              }
+                              disabled={action.isPending}
                               onClick={() =>
                                 action.mutate({
                                   path: `/campaigns/${id}/messages/${message.id}/refresh`,
@@ -926,6 +936,7 @@ function CampaignDetail() {
             >
               {editing && (
                 <form
+                  onChange={() => resetInputError(edit)}
                   onSubmit={(event) => {
                     event.preventDefault();
                     edit.mutate(

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Session } from '@coaching/domain';
-import { formText, request } from '../api';
+import { formText, request, resetInputError } from '../api';
 import { useLocale } from '../i18n';
 import { Alert, Button, Field, Page, State, useDraftSnapshot, useUnsaved } from '../ui';
 
@@ -41,7 +41,8 @@ export function ProfileSettings({ onDirtyChange }: { onDirtyChange: (dirty: bool
           onChange={() => {
             setDirty(true);
             onDirtyChange(true);
-            action.reset();
+            if (action.isSuccess) action.reset();
+            else resetInputError(action);
           }}
           onSubmit={(event) => {
             event.preventDefault();

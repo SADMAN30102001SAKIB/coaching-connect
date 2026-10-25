@@ -14,7 +14,7 @@ import {
   type Template,
   type TemplateScope,
 } from '@coaching/domain';
-import { formText, useAction, useCenter, useData, useChoices } from '../api';
+import { formText, useAction, useCenter, useData, useChoices, resetInputError } from '../api';
 import { useLocale } from '../i18n';
 import { BalanceCard } from '../components/BalanceCard';
 import { ProfileSettings } from '../components/ProfileSettings';
@@ -235,7 +235,10 @@ function CatalogForm({
   return (
     <form
       key={initial?.version ?? 'new'}
-      onChange={() => setDirty(true)}
+      onChange={() => {
+        resetInputError(action);
+        setDirty(true);
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -458,7 +461,10 @@ function TemplateForm({
   return (
     <form
       key={initial?.version ?? 'new'}
-      onChange={() => setDirty(true)}
+      onChange={() => {
+        resetInputError(action);
+        setDirty(true);
+      }}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -939,7 +945,10 @@ function RoleEditor({
   return (
     <form
       key={initial?.version ?? 'new'}
-      onChange={() => setDirty(true)}
+      onChange={() => {
+        resetInputError(action);
+        setDirty(true);
+      }}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -1050,17 +1059,20 @@ function SettingsPage() {
   const { t } = useLocale();
   const provider = useData<ProviderSettings>('/provider', permissions.includes('provider.manage'));
   const action = useAction();
+  const providerAction = useAction();
   const [replace, setReplace] = useState(false);
   return (
     <Page eyebrow="YOUR WORKSPACE, YOUR WAY" title="Settings">
       {unsaved.prompt}
       <ProfileSettings onDirtyChange={setProfileDirty} />
-      <Alert error={action.error} />
       {admin && (
         <form
           className="panel"
           key={center.revision}
-          onChange={() => setCenterDirty(true)}
+          onChange={() => {
+            resetInputError(action);
+            setCenterDirty(true);
+          }}
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -1078,6 +1090,7 @@ function SettingsPage() {
           }}
         >
           <h2>{t('Center settings')}</h2>
+          <Alert error={action.error} />
           <div className="form-grid">
             <Field label="Center name">
               <input name="name" defaultValue={center.name} required />
@@ -1119,19 +1132,28 @@ function SettingsPage() {
                   <strong>{t('Sender IDs:')}</strong> {provider.data.sender_ids.join(', ')}
                 </p>
                 <div className="actions">
-                  <Button variant="secondary" onClick={() => setReplace(true)}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      providerAction.reset();
+                      setReplace(true);
+                    }}
+                  >
                     {t('Replace account settings')}
                   </Button>
                 </div>
               </div>
             ) : (
               <form
-                onChange={() => setProviderDirty(true)}
+                onChange={() => {
+                  resetInputError(providerAction);
+                  setProviderDirty(true);
+                }}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = e.currentTarget;
                   const f = new FormData(form);
-                  action.mutate(
+                  providerAction.mutate(
                     {
                       path: '/provider',
                       method: 'PUT',
@@ -1195,6 +1217,7 @@ function SettingsPage() {
                     'Replacing credentials pauses affected unsent campaigns. Old credentials are retained only to check previously submitted messages. API keys are stored in the database as requested; database exports must be protected.',
                   )}
                 </p>
+                <Alert error={providerAction.error} />
                 <div className="actions">
                   {provider.data?.configured && (
                     <Button
@@ -1203,12 +1226,13 @@ function SettingsPage() {
                       onClick={() => {
                         setReplace(false);
                         setProviderDirty(false);
+                        providerAction.reset();
                       }}
                     >
                       {t('Cancel')}
                     </Button>
                   )}
-                  <Button type="submit" busy={action.isPending}>
+                  <Button type="submit" busy={providerAction.isPending}>
                     {t('Save SMS account')}
                   </Button>
                 </div>
