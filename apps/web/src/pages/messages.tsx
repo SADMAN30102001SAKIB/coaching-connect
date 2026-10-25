@@ -843,7 +843,7 @@ function CampaignDetail() {
                               variant="ghost"
                               busy={
                                 action.isPending &&
-                                action.variables?.path ===
+                                action.variables.path ===
                                   `/campaigns/${id}/messages/${message.id}/refresh`
                               }
                               disabled={action.isPending}
