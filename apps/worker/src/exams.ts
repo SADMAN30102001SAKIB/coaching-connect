@@ -1,6 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { nameSchema, resultStatus, type Exam, type Mark, type Paper } from '@coaching/domain';
+import {
+  nameSchema,
+  resultStatus,
+  type Exam,
+  type Mark,
+  type Paper,
+  type MarkProgress,
+} from '@coaching/domain';
 import { one, rows, statement, uid } from './db';
 import { AppError, assert } from './errors';
 import { requirePermission, type AppEnv } from './security';
@@ -40,7 +47,16 @@ exams.get('/', async (c) => {
     : ['9999-99-99', ''];
   const items = await rows<Exam>(
     c.env.DB,
-    "SELECT * FROM exams WHERE center_id=? AND (?='all' OR active=?) AND (exam_date<? OR (exam_date=? AND id>?)) ORDER BY exam_date DESC,id LIMIT 51",
+    `SELECT e.*,
+      (SELECT COUNT(*) FROM participants pt WHERE pt.center_id=e.center_id AND pt.exam_id=e.id) AS participants,
+      (SELECT COUNT(*) FROM papers p WHERE p.center_id=e.center_id AND p.exam_id=e.id) AS subject_count,
+      CASE WHEN ? THEN (SELECT COUNT(*) FROM participants pt WHERE pt.center_id=e.center_id AND pt.exam_id=e.id
+        AND EXISTS(SELECT 1 FROM papers p WHERE p.center_id=e.center_id AND p.exam_id=e.id)
+        AND NOT EXISTS(SELECT 1 FROM papers p LEFT JOIN results r ON r.center_id=p.center_id AND r.paper_id=p.id AND r.student_id=pt.student_id
+          WHERE p.center_id=e.center_id AND p.exam_id=e.id AND (r.status IS NULL OR r.status NOT IN ('scored','absent'))))
+        ELSE NULL END AS complete_count
+      FROM exams e WHERE e.center_id=? AND (?='all' OR e.active=?) AND (e.exam_date<? OR (e.exam_date=? AND e.id>?)) ORDER BY e.exam_date DESC,e.id LIMIT 51`,
+    Number(a.grants.includes('results.read')),
     a.center.id,
     status,
     status === 'inactive' ? 0 : 1,
@@ -121,6 +137,28 @@ exams.get('/:id', async (c) => {
     item.id,
   );
   const groups = await participatingGroups(c.env.DB, a.center.id, item.id);
+  if (a.grants.includes('results.read')) {
+    const progress = await rows<MarkProgress & { id: string }>(
+      c.env.DB,
+      `SELECT p.id,COUNT(CASE WHEN r.status='scored' THEN 1 END) AS marked,
+        COUNT(CASE WHEN r.status='absent' THEN 1 END) AS absent,
+        COUNT(pt.student_id)-COUNT(CASE WHEN r.status IN ('scored','absent') THEN 1 END) AS not_entered
+       FROM papers p LEFT JOIN participants pt ON pt.center_id=p.center_id AND pt.exam_id=p.exam_id
+       LEFT JOIN results r ON r.center_id=p.center_id AND r.paper_id=p.id AND r.student_id=pt.student_id
+       WHERE p.center_id=? AND p.exam_id=? GROUP BY p.id`,
+      a.center.id,
+      item.id,
+    );
+    for (const paper of papers) {
+      const stats = progress.find((entry) => entry.id === paper.id);
+      if (stats)
+        paper.progress = {
+          marked: stats.marked,
+          absent: stats.absent,
+          not_entered: stats.not_entered,
+        };
+    }
+  }
   return c.json({ ...item, papers, participants: count?.count ?? 0, groups });
 });
 exams.patch('/:id', async (c) => {
@@ -396,42 +434,49 @@ exams.get('/:id/papers/:paper/marks', async (c) => {
     c.req.param('paper'),
   );
   assert(paper, 'NOT_FOUND', 'This paper is unavailable.', 404);
-  const groupId = c.req.query('group_id');
+  const groupId = c.req.query('group_id') ?? '';
+  const filter = z
+    .enum(['all', 'scored', 'absent', 'not_entered'])
+    .default('all')
+    .parse(c.req.query('filter'));
   const groups = await participatingGroups(c.env.DB, a.center.id, paper.exam_id);
-  const items = groupId
-    ? await rows<Mark>(
-        c.env.DB,
-        `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
-         (SELECT GROUP_CONCAT(COALESCE(g.name,eg.name), ', ') FROM exam_group_members gm JOIN exam_groups eg ON eg.center_id=gm.center_id AND eg.exam_id=gm.exam_id AND eg.group_id=gm.group_id LEFT JOIN catalog g ON g.center_id=eg.center_id AND g.id=eg.group_id WHERE gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id!='') AS group_name
-         FROM participants p
-         JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id
-         JOIN exam_group_members gm ON gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id=?
-         LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?
-         WHERE p.center_id=? AND p.exam_id=? AND p.student_id>?
-         ORDER BY p.student_id LIMIT 51`,
-        groupId,
-        paper.id,
-        a.center.id,
-        paper.exam_id,
-        c.req.query('cursor') ?? '',
-      )
-    : await rows<Mark>(
-        c.env.DB,
-        `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
+  const groupFilter = `(?='' OR EXISTS(SELECT 1 FROM exam_group_members gm WHERE gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id=?))`;
+  const items = await rows<Mark>(
+    c.env.DB,
+    `SELECT s.id AS student_id,s.name,s.identifier,COALESCE(r.status,'scored') AS status,r.score,COALESCE(r.version,0) AS version,
          (SELECT GROUP_CONCAT(COALESCE(g.name,eg.name), ', ') FROM exam_group_members gm JOIN exam_groups eg ON eg.center_id=gm.center_id AND eg.exam_id=gm.exam_id AND eg.group_id=gm.group_id LEFT JOIN catalog g ON g.center_id=eg.center_id AND g.id=eg.group_id WHERE gm.center_id=p.center_id AND gm.exam_id=p.exam_id AND gm.student_id=p.student_id AND gm.group_id!='') AS group_name
          FROM participants p
          JOIN students s ON s.center_id=p.center_id AND s.id=p.student_id
          LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?
-         WHERE p.center_id=? AND p.exam_id=? AND p.student_id>?
+         WHERE p.center_id=? AND p.exam_id=? AND p.student_id>? AND ${groupFilter}
+           AND (?='all' OR (?='not_entered' AND (r.status IS NULL OR r.status NOT IN ('scored','absent'))) OR r.status=?)
          ORDER BY p.student_id LIMIT 51`,
-        paper.id,
-        a.center.id,
-        paper.exam_id,
-        c.req.query('cursor') ?? '',
-      );
+    paper.id,
+    a.center.id,
+    paper.exam_id,
+    c.req.query('cursor') ?? '',
+    groupId,
+    groupId,
+    filter,
+    filter,
+    filter,
+  );
+  const progress = await one<MarkProgress>(
+    c.env.DB,
+    `SELECT COUNT(CASE WHEN r.status='scored' THEN 1 END) AS marked,
+      COUNT(CASE WHEN r.status='absent' THEN 1 END) AS absent,
+      COUNT(*)-COUNT(CASE WHEN r.status IN ('scored','absent') THEN 1 END) AS not_entered
+     FROM participants p LEFT JOIN results r ON r.center_id=p.center_id AND r.student_id=p.student_id AND r.paper_id=?
+     WHERE p.center_id=? AND p.exam_id=? AND ${groupFilter}`,
+    paper.id,
+    a.center.id,
+    paper.exam_id,
+    groupId,
+    groupId,
+  );
   const more = items.length > 50;
   if (more) items.pop();
-  return c.json({ paper, items, next: more ? items.at(-1)?.student_id : null, groups });
+  return c.json({ paper, items, next: more ? items.at(-1)?.student_id : null, groups, progress });
 });
 exams.put('/:id/papers/:paper/marks', async (c) => {
   const a = requirePermission(c, 'results.update');

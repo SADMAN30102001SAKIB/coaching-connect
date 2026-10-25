@@ -1419,6 +1419,46 @@ select:disabled {
   gap: 10px;
   flex-wrap: wrap;
 }
+.exam-progress-summary {
+  color: var(--text-secondary);
+}
+.panel .record-row.exam-record .record-row-content .grow small {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+.result-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.result-progress a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.result-progress a:hover {
+  background: var(--surface-subtle);
+}
+.result-progress strong {
+  color: var(--text);
+  font-size: 18px;
+}
+.result-filters {
+  flex-wrap: wrap;
+}
 .danger-panel {
   border-color: var(--danger-border);
   background: var(--surface);

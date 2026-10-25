@@ -17,6 +17,7 @@ import {
   type Catalog,
   type Exam,
   type Mark,
+  type MarkProgress,
   type Page as Paged,
   type Paper,
   type ResultStatus,
@@ -37,6 +38,14 @@ import {
   useDraftSnapshot,
   useListParams,
 } from '../ui';
+
+const resultFilters = [
+  { value: 'all', label: 'All students' },
+  { value: 'scored', label: 'Marked' },
+  { value: 'absent', label: 'Absent' },
+  { value: 'not_entered', label: 'Not entered' },
+] as const;
+type ResultFilter = (typeof resultFilters)[number]['value'];
 
 export default function ExamPages() {
   return (
@@ -64,7 +73,7 @@ function ExamList() {
   const list = useData<Paged<Exam>>(`/exams?status=${status}&cursor=${encodeURIComponent(cursor)}`);
   const action = useAction();
   const { permissions } = useCenter();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   return (
     <Page
       eyebrow="LEARNING, IN FOCUS"
@@ -104,6 +113,27 @@ function ExamList() {
                   <div className="grow">
                     <strong>{exam.name}</strong>
                     <small>{exam.exam_date}</small>
+                    {exam.participants !== undefined && (
+                      <small>
+                        {new Intl.NumberFormat(locale).format(exam.participants)} {t('students')}
+                        {exam.subject_count !== undefined && (
+                          <>
+                            {' '}
+                            · {exam.subject_count} {t('subjects')}
+                          </>
+                        )}
+                      </small>
+                    )}
+                    {typeof exam.complete_count === 'number' && (
+                      <small className="exam-progress-summary">
+                        {new Intl.NumberFormat(locale).format(exam.complete_count)} {t('complete')}{' '}
+                        ·{' '}
+                        {new Intl.NumberFormat(locale).format(
+                          (exam.participants ?? 0) - exam.complete_count,
+                        )}{' '}
+                        {t('incomplete')}
+                      </small>
+                    )}
                   </div>
                   {!exam.active && <span className="badge paused">{t('Archived')}</span>}
                 </Link>
@@ -648,6 +678,33 @@ function ExamDetail() {
                         <span className="muted">{t('Maximum marks')}</span>
                         <strong>{formatScore(paper.maximum)}</strong>
                       </div>
+                      {paper.progress && permissions.includes('results.read') && (
+                        <div
+                          className="result-progress"
+                          role="group"
+                          aria-label={t('Marking progress')}
+                        >
+                          {resultFilters
+                            .filter((filter) => filter.value !== 'all')
+                            .map((filter) => {
+                              const count =
+                                filter.value === 'scored'
+                                  ? paper.progress?.marked
+                                  : filter.value === 'absent'
+                                    ? paper.progress?.absent
+                                    : paper.progress?.not_entered;
+                              return (
+                                <Link
+                                  key={filter.value}
+                                  to={`/exams/${id}/marks/${paper.id}?filter=${filter.value}`}
+                                >
+                                  <strong>{count}</strong>
+                                  <span>{t(filter.label)}</span>
+                                </Link>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
                     {permissions.includes('results.read') && (
                       <Link
@@ -944,23 +1001,28 @@ function Marks() {
   const { params, update } = useListParams();
   const cursor = params.get('cursor') ?? '';
   const selectedGroup = params.get('group') ?? '';
+  const filter: ResultFilter =
+    resultFilters.find((filter) => filter.value === params.get('filter'))?.value ?? 'all';
   const marks = useData<{
     paper: Paper;
     items: Mark[];
     next: string | null;
     groups: { id: string; name: string; count: number }[];
+    progress?: MarkProgress;
   }>(
-    `/exams/${id}/papers/${paperId}/marks?cursor=${cursor}${selectedGroup ? `&group_id=${selectedGroup}` : ''}`,
+    `/exams/${id}/papers/${paperId}/marks?cursor=${cursor}${selectedGroup ? `&group_id=${selectedGroup}` : ''}${filter !== 'all' ? `&filter=${filter}` : ''}`,
   );
   return (
     <State query={marks}>
       {marks.data && (
         <MarksForm
-          key={`${id}:${paperId}:${cursor}:${selectedGroup}`}
+          key={`${id}:${paperId}:${cursor}:${selectedGroup}:${filter}`}
           data={marks.data}
           exam={id}
           paper={paperId}
           selectedGroup={selectedGroup}
+          filter={filter}
+          onFilter={(filter) => update({ filter, cursor: '' })}
           onSelectGroup={(gid) => {
             update({ group: gid, cursor: '' });
           }}
@@ -975,6 +1037,8 @@ function MarksForm({
   exam,
   paper,
   selectedGroup,
+  filter,
+  onFilter,
   onSelectGroup,
   nextPage,
 }: {
@@ -983,10 +1047,13 @@ function MarksForm({
     items: Mark[];
     next: string | null;
     groups: { id: string; name: string; count: number }[];
+    progress?: MarkProgress;
   };
   exam: string;
   paper: string;
   selectedGroup: string;
+  filter: ResultFilter;
+  onFilter: (filter: ResultFilter) => void;
   onSelectGroup: (v: string) => void;
   nextPage: (v: string) => void;
 }) {
@@ -1017,6 +1084,38 @@ function MarksForm({
     >
       {unsaved.prompt}
       <Alert error={action.error ?? error} />
+      <div className="group-tabs result-filters" role="group" aria-label={t('Filter results')}>
+        {resultFilters.map((choice) => {
+          const count = data.progress
+            ? choice.value === 'all'
+              ? data.progress.marked + data.progress.absent + data.progress.not_entered
+              : choice.value === 'scored'
+                ? data.progress.marked
+                : choice.value === 'absent'
+                  ? data.progress.absent
+                  : data.progress.not_entered
+            : undefined;
+          return (
+            <button
+              type="button"
+              key={choice.value}
+              className={filter === choice.value ? 'active' : ''}
+              aria-pressed={filter === choice.value}
+              onClick={() => {
+                if (filter === choice.value) return;
+                if (dirty) {
+                  setError(new Error('Save or discard your marks before changing filters.'));
+                  return;
+                }
+                onFilter(choice.value);
+              }}
+            >
+              {t(choice.label)}
+              {count !== undefined && <span className="chip-count">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
       {data.groups.length > 0 && (
         <div className="group-tabs" role="tablist" aria-label={t('Filter by group')}>
           <button
@@ -1075,7 +1174,10 @@ function MarksForm({
               <div className="marks-list">
                 {data.items.map((row, index) => {
                   const current = changes[row.student_id] ?? {
-                    status: row.status,
+                    status:
+                      row.status === 'pending' || row.status === 'exempt'
+                        ? ('scored' as const)
+                        : row.status,
                     value: row.score === null ? '' : formatScore(row.score),
                   };
                   return (
@@ -1110,7 +1212,7 @@ function MarksForm({
                           }));
                         }}
                       >
-                        {(['scored', 'absent', 'pending', 'exempt'] as const).map((status) => (
+                        {(['scored', 'absent'] as const).map((status) => (
                           <option key={status} value={status}>
                             {t(status.charAt(0).toUpperCase() + status.slice(1))}
                           </option>
@@ -1145,13 +1247,22 @@ function MarksForm({
               </div>
             ) : (
               <Empty
-                title={selectedGroup ? 'No students in this group' : 'No participants'}
+                title={
+                  filter !== 'all'
+                    ? 'No students match this filter'
+                    : selectedGroup
+                      ? 'No students in this group'
+                      : 'No participants'
+                }
                 description={
-                  selectedGroup
-                    ? 'No students from this group are participating in this exam.'
-                    : 'Add students from a group on the exam page first.'
+                  filter !== 'all'
+                    ? 'Choose another result filter to see other students.'
+                    : selectedGroup
+                      ? 'No students from this group are participating in this exam.'
+                      : 'Add students from a group on the exam page first.'
                 }
                 action={
+                  filter === 'all' &&
                   !selectedGroup && (
                     <Link className="button primary" to={`/exams/${exam}`}>
                       {t('Add participating groups')}

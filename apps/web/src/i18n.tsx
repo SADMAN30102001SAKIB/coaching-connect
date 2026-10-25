@@ -540,6 +540,17 @@ const bn: Record<string, string> = {
   'batches selected': 'টি ব্যাচ নির্বাচিত',
   'All students included (no batch filter)': 'সব শিক্ষার্থী অন্তর্ভুক্ত (কোনো ব্যাচ ফিল্টার নেই)',
   'All exam participants': 'পরীক্ষার সব অংশগ্রহণকারী',
+  complete: 'সম্পূর্ণ',
+  incomplete: 'অসম্পূর্ণ',
+  Marked: 'নম্বর দেওয়া হয়েছে',
+  'Not entered': 'নম্বর দেওয়া হয়নি',
+  'Marking progress': 'নম্বর দেওয়ার অগ্রগতি',
+  'Filter results': 'ফলাফল বাছাই করুন',
+  'No students match this filter': 'এই বাছাই অনুযায়ী কোনো শিক্ষার্থী নেই',
+  'Choose another result filter to see other students.':
+    'অন্য শিক্ষার্থীদের দেখতে বাছাই পরিবর্তন করুন।',
+  'Save or discard your marks before changing filters.':
+    'বাছাই পরিবর্তনের আগে নম্বর সংরক্ষণ করুন অথবা পরিবর্তন বাতিল করুন।',
   'Group enrolled. All students were already participating.':
     'ব্যাচটি যুক্ত হয়েছে। সব শিক্ষার্থী আগে থেকেই পরীক্ষায় অংশ নিচ্ছে।',
   'Group removed. Other group enrollments and individual enrollments were kept.':

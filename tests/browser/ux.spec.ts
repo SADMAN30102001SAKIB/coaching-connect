@@ -1,6 +1,124 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('exam progress links open filtered marks and protect unsaved edits', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  if (info.project.use.isMobile) await page.setViewportSize({ width: 320, height: 850 });
+  const progress = { marked: 1, absent: 1, not_entered: 2 };
+  const paper = { id: 'paper-a', name: 'English', maximum: 10000, version: 1, progress };
+  const exam = {
+    id: 'exam-a',
+    name: 'October assessment',
+    exam_date: '2026-10-25',
+    active: 1,
+    version: 1,
+    participants: 4,
+    subject_count: 1,
+    complete_count: 2,
+    papers: [paper],
+    groups: [],
+  };
+  await page.route('**/api/c/center-a/exams**', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/marks')) {
+      const filter = url.searchParams.get('filter') ?? 'all';
+      const items = ['scored', 'absent', 'pending', 'exempt'].map((status, i) => ({
+        student_id: `student-${i}`,
+        name: `Student ${i}`,
+        identifier: '',
+        status,
+        score: i === 0 ? 0 : null,
+        version: 1,
+      }));
+      return route.fulfill({
+        json: {
+          paper,
+          groups: [],
+          progress,
+          next: null,
+          items: items.filter(
+            (row) =>
+              filter === 'all' ||
+              (filter === 'not_entered'
+                ? ['pending', 'exempt'].includes(row.status)
+                : row.status === filter),
+          ),
+        },
+      });
+    }
+    return route.fulfill({
+      json: url.pathname.endsWith('/exams') ? { items: [exam], next: null } : exam,
+    });
+  });
+  await page.goto('/exams');
+  await expect(page.locator('.exam-record')).toContainText('4 students');
+  await expect(page.locator('.exam-record')).toContainText('2 complete · 2 incomplete');
+  const summary = await page.locator('.exam-progress-summary').evaluate((element) => ({
+    width: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    whiteSpace: getComputedStyle(element).whiteSpace,
+    overflow: getComputedStyle(element).overflow,
+    display: getComputedStyle(element).display,
+    wrap: getComputedStyle(element).overflowWrap,
+  }));
+  expect(summary.scrollWidth <= summary.width, JSON.stringify(summary)).toBe(true);
+  await page.screenshot({ path: info.outputPath('exam-progress-list.png'), fullPage: true });
+  await page.locator('.exam-record .record-row-content').click();
+  await expect(page.locator('.result-progress')).toContainText('Marked');
+  await expect(page.locator('.result-progress')).toContainText('Not entered');
+  await page.screenshot({ path: info.outputPath('subject-progress.png'), fullPage: true });
+  await page
+    .locator('.result-progress')
+    .getByRole('link', { name: '2 Not entered', exact: true })
+    .click();
+  await expect(page).toHaveURL(/filter=not_entered/);
+  await expect(page.locator('.mark-row')).toHaveCount(2);
+  await page.getByLabel('Marks for Student 2', { exact: true }).fill('23');
+  await page
+    .getByRole('group', { name: 'Filter results', exact: true })
+    .getByRole('button', { name: 'Absent', exact: false })
+    .click();
+  await expect(page.getByRole('alert')).toContainText(
+    'Save or discard your marks before changing filters.',
+  );
+  await expect(page).toHaveURL(/filter=not_entered/);
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+  await page
+    .getByRole('group', { name: 'Filter results', exact: true })
+    .getByRole('button', { name: 'Absent', exact: false })
+    .click();
+  await expect(page.locator('.mark-row')).toHaveCount(1);
+  await expect(page.getByLabel('Result status for Student 1', { exact: true })).toHaveValue(
+    'absent',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('marks dropdown offers only scored and absent without rewriting existing statuses', async ({
+  page,
+}) => {
+  const control = await fixture(page);
+  control.markScore = null;
+  for (const status of ['pending', 'exempt']) {
+    control.markStatus = status;
+    await page.goto('/exams/exam-a/marks/paper-a');
+    const select = page.getByLabel('Result status for Ayesha', { exact: true });
+    await expect(select.locator('option')).toHaveText(['Scored', 'Absent']);
+    await expect(page.getByLabel('Marks for Ayesha', { exact: true })).toHaveValue('');
+    await expect(page.getByRole('button', { name: 'Save marks', exact: true })).toBeDisabled();
+    expect(control.writes).toHaveLength(0);
+  }
+  await page.getByLabel('Result status for Ayesha', { exact: true }).selectOption('absent');
+  await page.getByRole('button', { name: 'Save marks', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save marks', exact: true })).toBeDisabled();
+  expect(control.writes.at(-1)?.body).toEqual([
+    { student_id: 'student-a', status: 'absent', score: null, version: 1 },
+  ]);
+});
+
 test('exam enrollment resets its selection and replaces stale add feedback after removal', async ({
   page,
 }, info) => {
@@ -2030,7 +2148,7 @@ test('reconnect and failed reads preserve unsaved marks and their conflict versi
   ]);
 });
 
-test('concurrent marks edits cannot overwrite newer results and zero stays distinct from exempt', async ({
+test('concurrent marks edits preserve legacy results until explicitly replaced with a score', async ({
   page,
 }) => {
   const control = await fixture(page);
@@ -2053,9 +2171,15 @@ test('concurrent marks edits cannot overwrite newer results and zero stays disti
   );
   await expect(score).toHaveValue('73');
   await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
-  await expect(page.getByLabel('Result status for Ayesha')).toHaveValue('exempt');
-  await expect(score).toBeDisabled();
-  await page.getByLabel('Result status for Ayesha').selectOption('scored');
+  await expect(page.getByLabel('Result status for Ayesha')).toHaveValue('scored');
+  await expect(score).toBeEnabled();
+  await expect(score).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Save marks', exact: true })).toBeDisabled();
+  expect(control.markStatus).toBe('exempt');
+  await expect(page.getByLabel('Result status for Ayesha').locator('option')).toHaveText([
+    'Scored',
+    'Absent',
+  ]);
   await score.fill('0');
   await page.getByRole('button', { name: 'Save marks', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save marks', exact: true })).toBeDisabled();

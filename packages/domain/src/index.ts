@@ -210,6 +210,14 @@ export interface Exam {
   exam_date: string;
   active: number;
   version: number;
+  participants?: number;
+  subject_count?: number;
+  complete_count?: number | null;
+}
+export interface MarkProgress {
+  marked: number;
+  absent: number;
+  not_entered: number;
 }
 export interface Paper {
   version: number;
@@ -219,6 +227,7 @@ export interface Paper {
   subject_id: string;
   maximum: number;
   position: number;
+  progress?: MarkProgress;
 }
 export interface Mark {
   student_id: string;

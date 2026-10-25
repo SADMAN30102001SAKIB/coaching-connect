@@ -1367,6 +1367,130 @@ describe('explicit exam group enrollments', () => {
       ),
     ).toEqual({ score: 5000 });
   });
+  it('summarizes marking progress and filters all result categories without treating zero as missing', async () => {
+    const f = await fixture();
+    await f.add(f.a);
+    await f.add(f.b);
+    const statuses = ['scored', 'absent', 'pending', 'exempt'];
+    await call(
+      f.marks,
+      'PUT',
+      f.students.map((student, i) => ({
+        student_id: student,
+        status: statuses[i],
+        score: i === 0 ? 0 : null,
+        version: 0,
+      })),
+    );
+    const detail = (await f.detail()).body;
+    expect(z.array(z.object({ progress: z.unknown() })).parse(detail.papers)[0]?.progress).toEqual({
+      marked: 1,
+      absent: 1,
+      not_entered: 2,
+    });
+    const list = await call(`/c/${f.center}/exams`);
+    expect(
+      z
+        .array(
+          z.object({
+            complete_count: z.number(),
+            participants: z.number(),
+            subject_count: z.number(),
+          }),
+        )
+        .parse(list.body.items)[0],
+    ).toMatchObject({ complete_count: 2, participants: 4, subject_count: 1 });
+    for (const [filter, expected] of [
+      ['scored', [f.students[0]]],
+      ['absent', [f.students[1]]],
+      ['not_entered', [f.students[2], f.students[3]]],
+    ] as const) {
+      const response = await call(`${f.marks}?filter=${filter}`);
+      expect(
+        z
+          .array(z.object({ student_id: z.string() }))
+          .parse(response.body.items)
+          .map((r) => r.student_id)
+          .sort(),
+      ).toEqual([...expected].sort());
+      expect(response.body.progress).toEqual({ marked: 1, absent: 1, not_entered: 2 });
+    }
+    const combined = await call(`${f.marks}?filter=not_entered&group_id=${f.b}`);
+    expect(combined.body.items).toHaveLength(1);
+    expect(combined.body.progress).toEqual({ marked: 0, absent: 1, not_entered: 1 });
+    const subject = z
+      .string()
+      .parse(
+        (await call(`/c/${f.center}/catalog`, 'POST', { name: 'Math', kind: 'subject' })).body.id,
+      );
+    await call(`/c/${f.center}/exams/${f.exam}/papers`, 'POST', {
+      subject_id: subject,
+      maximum: 5000,
+    });
+    expect(
+      z
+        .array(z.object({ complete_count: z.number() }))
+        .parse((await call(`/c/${f.center}/exams`)).body.items)[0]?.complete_count,
+    ).toBe(0);
+    expect((await call(`${f.marks}?filter=invalid`)).status).toBe(422);
+  });
+
+  it('counts missing rows across pages and does not expose progress without result-read permission', async () => {
+    const f = await fixture();
+    const students = Array.from({ length: 55 }, () => uid());
+    await env.DB.batch(
+      students.map((student) =>
+        statement(
+          env.DB,
+          'INSERT INTO students(id,center_id,name) VALUES(?,?,?)',
+          student,
+          f.center,
+          'Unmarked student',
+        ),
+      ),
+    );
+    await call(`/c/${f.center}/exams/${f.exam}/participants`, 'POST', { student_ids: students });
+    const first = await call(`${f.marks}?filter=not_entered`);
+    expect(first.body.items).toHaveLength(50);
+    expect(first.body.progress).toEqual({ marked: 0, absent: 0, not_entered: 55 });
+    const second = await call(`${f.marks}?filter=not_entered&cursor=${String(first.body.next)}`);
+    expect(second.body.items).toHaveLength(5);
+    expect(second.body.progress).toEqual(first.body.progress);
+    const token = secret(),
+      role = uid();
+    await env.DB.batch([
+      statement(env.DB, 'INSERT INTO memberships VALUES(?,?,1)', f.center, otherId),
+      statement(
+        env.DB,
+        'INSERT INTO roles(id,center_id,name,permissions) VALUES(?,?,?,?)',
+        role,
+        f.center,
+        'Exam reader',
+        '["exams.read"]',
+      ),
+      statement(env.DB, 'INSERT INTO member_roles VALUES(?,?,?)', f.center, otherId, role),
+      statement(
+        env.DB,
+        'INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)',
+        await digest(token),
+        otherId,
+        now() + 60000,
+        now(),
+      ),
+    ]);
+    const session = `coaching_session=${token}`;
+    const list = await call(`/c/${f.center}/exams`, 'GET', undefined, session);
+    expect(
+      z
+        .array(z.object({ complete_count: z.null(), participants: z.number() }))
+        .parse(list.body.items)[0]?.participants,
+    ).toBe(55);
+    const detail = await call(`/c/${f.center}/exams/${f.exam}`, 'GET', undefined, session);
+    expect(
+      z.array(z.record(z.string(), z.unknown())).parse(detail.body.papers)[0],
+    ).not.toHaveProperty('progress');
+    expect((await call(f.marks, 'GET', undefined, session)).status).toBe(403);
+  });
 
   it('cleans snapshot enrollment when an exam or center is deleted', async () => {
     const f = await fixture();
