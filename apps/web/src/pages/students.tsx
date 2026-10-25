@@ -222,7 +222,7 @@ function Students() {
 }
 interface Detail extends Student {
   contacts: Contact[];
-  groups: { group_id: string }[];
+  groups: { group_id: string; name?: string }[];
 }
 function StudentDetail() {
   const { id = '' } = useParams();
@@ -261,8 +261,15 @@ function StudentDetail() {
               <div>
                 <h2>{student.data.name}</h2>
                 <p className="muted">
-                  {student.data.identifier || t('No identifier')} · {student.data.groups.length}{' '}
-                  {t('groups')}
+                  {student.data.identifier || t('No identifier')} ·{' '}
+                  {student.data.group_name ||
+                    student.data.groups
+                      .map((g) => g.name)
+                      .filter(Boolean)
+                      .join(', ') ||
+                    (student.data.groups.length > 0
+                      ? `${student.data.groups.length} ${t('groups')}`
+                      : t('No group'))}
                 </p>
               </div>
             </section>

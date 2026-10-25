@@ -281,7 +281,13 @@ records.get('/students/:id', async (c) => {
   const a = requirePermission(c, 'students.read');
   const item = await one<Student>(
     c.env.DB,
-    'SELECT * FROM students WHERE center_id=? AND id=?',
+    `SELECT s.*,
+      (SELECT GROUP_CONCAT(g.name, ', ')
+       FROM group_members gm
+       JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
+       WHERE gm.center_id=s.center_id AND gm.student_id=s.id AND gm.left_at IS NULL) AS group_name
+     FROM students s
+     WHERE s.center_id=? AND s.id=?`,
     a.center.id,
     c.req.param('id'),
   );
@@ -295,7 +301,11 @@ records.get('/students/:id', async (c) => {
     ),
     statement(
       c.env.DB,
-      'SELECT group_id FROM group_members WHERE center_id=? AND student_id=? AND left_at IS NULL',
+      `SELECT gm.group_id, g.name
+       FROM group_members gm
+       JOIN catalog g ON g.center_id=gm.center_id AND g.id=gm.group_id AND g.kind='group'
+       WHERE gm.center_id=? AND gm.student_id=? AND gm.left_at IS NULL
+       ORDER BY g.name`,
       a.center.id,
       item.id,
     ),
