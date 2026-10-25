@@ -203,7 +203,7 @@ export function State({
   return (
     <div className="query-state" aria-busy={query.isFetching}>
       {query.isPlaceholderData && placeholderMode === 'block' && (
-        <div className="results-loading" role="status">
+        <div className="sr-only" role="status">
           {t('Loading… Showing previous results.')}
         </div>
       )}

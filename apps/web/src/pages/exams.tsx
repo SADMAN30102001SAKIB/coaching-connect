@@ -1189,7 +1189,7 @@ function MarksForm({
       >
         <fieldset disabled={action.isPending || loading} className="form-fields marks-form-fields">
           {loading && (
-            <div className="results-loading" role="status">
+            <div className="sr-only" role="status">
               {t('Loading… Showing previous results.')}
             </div>
           )}

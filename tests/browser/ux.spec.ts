@@ -81,9 +81,9 @@ test('platform pagination keeps old center rows labelled and inert while loading
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   try {
     await expect(page.getByText('First Coaching', { exact: true })).toBeVisible();
-    await expect(
-      page.getByText('Loading… Showing previous results.', { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText('Loading… Showing previous results.', { exact: true })).toHaveClass(
+      'sr-only',
+    );
     await expect(page.locator('.query-content[inert]')).toHaveCount(1);
     await expect(page.locator('.skeleton')).toHaveCount(0);
   } finally {
@@ -150,7 +150,7 @@ test('campaign message and exclusion pagination retains only the changing list',
       await expect(page.getByText(`Old ${kind}`, { exact: true })).toBeVisible();
       await expect(
         page.getByText('Loading… Showing previous results.', { exact: true }),
-      ).toBeVisible();
+      ).toHaveClass('sr-only');
       await expect(page.locator('.skeleton')).toHaveCount(0);
     } finally {
       release();
@@ -264,7 +264,7 @@ test('list pagination retains clearly labelled inactive results instead of a ful
     try {
       await expect(
         page.getByText('Loading… Showing previous results.', { exact: true }),
-      ).toBeVisible();
+      ).toHaveClass('sr-only');
       await expect(page.getByText(entry.item.name, { exact: true })).toBeVisible();
       await expect(page.locator('.query-content[inert]')).toHaveCount(1);
       await expect(page.locator('.skeleton')).toHaveCount(0);

@@ -865,17 +865,6 @@ select:disabled {
 .marks-form-fields {
   position: relative;
 }
-.results-loading {
-  position: absolute;
-  top: -22px;
-  right: 0;
-  z-index: 2;
-  max-width: calc(100% - 16px);
-  padding: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  pointer-events: none;
-}
 .query-content[inert],
 .marks-panel[aria-busy='true'] .mark-row {
   opacity: 0.55;
