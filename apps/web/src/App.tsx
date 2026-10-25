@@ -333,9 +333,14 @@ export default function App() {
               <Button variant="ghost" onClick={toggle}>
                 {locale === 'en' ? 'বাংলা' : 'English'}
               </Button>
-              <span className="user-avatar" title={user.name}>
+              <Link
+                to="/settings"
+                className="user-avatar"
+                title={user.name}
+                aria-label={t('Settings')}
+              >
                 {user.name.slice(0, 1)}
-              </span>
+              </Link>
             </div>
           </header>
           {!online && (

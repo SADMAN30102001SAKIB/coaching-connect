@@ -1,6 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('profile avatar opens settings', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/');
+  const profile = page.locator('.topbar').getByRole('link', { name: 'Settings', exact: true });
+  await expect(profile).toBeVisible();
+  await expect(profile).toHaveAttribute('href', '/settings');
+  await profile.click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByLabel('Display name', { exact: true })).toBeVisible();
+});
+
 test('mobile platform header stays inline and account actions work through the compact menu', async ({
   page,
 }, info) => {
