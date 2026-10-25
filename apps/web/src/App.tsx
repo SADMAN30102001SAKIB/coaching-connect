@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Link,
   NavLink,
@@ -177,7 +177,7 @@ export default function App() {
               {locale === 'en' ? 'বাংলা' : 'English'}
             </Button>
             <Link
-              className="button secondary account-icon-control"
+              className="button secondary account-icon-control account-desktop-control"
               to={location.pathname === '/settings' ? '/' : '/settings'}
               aria-label={t(location.pathname === '/settings' ? 'Home' : 'Settings')}
               title={t(location.pathname === '/settings' ? 'Home' : 'Settings')}
@@ -193,7 +193,7 @@ export default function App() {
             </Link>
             <Button
               variant="secondary"
-              className="account-icon-control"
+              className="account-icon-control account-desktop-control"
               aria-label={t('Sign out')}
               title={t('Sign out')}
               onClick={() => {
@@ -203,6 +203,7 @@ export default function App() {
               <LogOut size={18} aria-hidden="true" />
               <span className="control-label">{t('Sign out')}</span>
             </Button>
+            <MobileAccountMenu onSignOut={signOut} />
           </div>
         </header>
         <Alert error={accountError} />
@@ -478,6 +479,80 @@ export default function App() {
         />
       </div>
     </CenterContext.Provider>
+  );
+}
+
+function MobileAccountMenu({ onSignOut }: { onSignOut: () => void }) {
+  const { t } = useLocale();
+  const location = useLocation();
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  const settings = location.pathname !== '/settings';
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !container.current?.contains(event.target))
+        setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    };
+    const resize = () => setOpen(false);
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+      window.removeEventListener('resize', resize);
+    };
+  }, [open]);
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  return (
+    <div className="account-mobile-menu" ref={container}>
+      <button
+        type="button"
+        className="button secondary"
+        ref={trigger}
+        aria-label={t('Account actions')}
+        title={t('Account actions')}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <MoreHorizontal size={18} aria-hidden="true" />
+      </button>
+      {open && (
+        <nav className="account-menu-panel" id={id} aria-label={t('Account actions')}>
+          <Link className="button ghost" to={settings ? '/settings' : '/'} onClick={close}>
+            {settings ? (
+              <Settings size={18} aria-hidden="true" />
+            ) : (
+              <Home size={18} aria-hidden="true" />
+            )}
+            {t(settings ? 'Settings' : 'Home')}
+          </Link>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              close();
+              onSignOut();
+            }}
+          >
+            <LogOut size={18} aria-hidden="true" />
+            {t('Sign out')}
+          </Button>
+        </nav>
+      )}
+    </div>
   );
 }
 

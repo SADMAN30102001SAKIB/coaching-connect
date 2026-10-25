@@ -1,6 +1,67 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('mobile platform header stays inline and account actions work through the compact menu', async ({
+  page,
+}, info) => {
+  const control = await fixture(page);
+  control.platform = true;
+  control.noCenters = true;
+  control.displayName = 'A long platform administrator name that should wrap';
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Account actions', exact: true })).toBeHidden();
+  await page.setViewportSize({ width: 320, height: 850 });
+  const trigger = page.getByRole('button', { name: 'Account actions', exact: true });
+  await expect(trigger).toBeVisible();
+  const title = await page.getByRole('heading', { name: 'Platform', exact: true }).boundingBox();
+  const controls = await page.locator('.account-controls').boundingBox();
+  if (!title || !controls) throw new Error('Header geometry is missing');
+  expect(title.x + title.width).toBeLessThanOrEqual(controls.x);
+  expect(controls.y).toBeLessThan(title.y + title.height);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('platform-inline-header.png'), fullPage: true });
+  await trigger.click();
+  const menu = page.getByRole('navigation', { name: 'Account actions', exact: true });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+  const box = await menu.boundingBox();
+  if (!box) throw new Error('Missing account menu');
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(320);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.screenshot({ path: info.outputPath('platform-account-menu.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.getByRole('heading', { name: 'Platform', exact: true }).click();
+  await expect(menu).toHaveCount(0);
+  await trigger.click();
+  await menu.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(menu).toHaveCount(0);
+  await trigger.click();
+  await menu.getByRole('link', { name: 'Home', exact: true }).click();
+  await trigger.click();
+  await menu.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Sign out', exact: true })).toBeVisible();
+  await expect(menu).toHaveCount(0);
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await trigger.click();
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+});
+
 test('platform pagination keeps old center rows labelled and inert while loading', async ({
   page,
 }) => {

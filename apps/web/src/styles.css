@@ -3644,23 +3644,61 @@ dialog .actions {
   gap: 8px;
   flex-shrink: 0;
 }
+.account-mobile-menu {
+  display: none;
+  position: relative;
+}
+.account-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  min-width: 160px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-floating);
+}
+.account-menu-panel .button {
+  width: 100%;
+  justify-content: flex-start;
+  white-space: nowrap;
+}
 
 @media (max-width: 700px) {
   .account-header {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .account-header > div:first-child {
+    min-width: 0;
+  }
+  .account-header h1 {
+    font-size: 28px;
+  }
+  .account-name {
+    overflow-wrap: anywhere;
   }
   .account-header .account-controls {
-    align-self: flex-start;
     flex-wrap: nowrap;
+    gap: 2px;
   }
-  .account-controls .control-label {
+  .account-controls .account-desktop-control {
     display: none;
   }
-  .account-controls .account-icon-control {
+  .account-mobile-menu {
+    display: block;
+  }
+  .account-mobile-menu > .button {
     width: 40px;
     min-height: 40px;
     padding: 8px;
+  }
+  .account-controls > .button {
+    padding-inline: 8px;
   }
   .exam-record {
     gap: 4px;

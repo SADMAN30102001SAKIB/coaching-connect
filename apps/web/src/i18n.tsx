@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 const bn: Record<string, string> = {
   'Your account': 'আপনার অ্যাকাউন্ট',
+  'Account actions': 'অ্যাকাউন্টের বিকল্প',
   Staff: 'কর্মী',
   Roles: 'ভূমিকা',
   'Edit staff access': 'কর্মীর অনুমতি',
