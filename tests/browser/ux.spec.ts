@@ -50,6 +50,26 @@ test('message status stays beside short and long titles without increasing row h
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('subject preview requires a subject but keeps groups optional', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/messages/new?exam=exam-a');
+  await page.getByLabel('Message type', { exact: true }).selectOption('subject');
+  await page.getByLabel('Message', { exact: true }).fill('Result: {{marks}}');
+  const preview = page.getByRole('button', { name: 'Prepare preview', exact: true });
+  await expect(preview).toBeDisabled();
+  await page.getByLabel('Subject', { exact: true }).selectOption('paper-a');
+  await expect(preview).toBeEnabled();
+  await expect(page.getByText('All exam participants', { exact: true })).toBeVisible();
+  await page.getByLabel('Subject', { exact: true }).selectOption('');
+  await expect(preview).toBeDisabled();
+  await page.getByLabel('Message type', { exact: true }).selectOption('summary');
+  await page.getByLabel('Message', { exact: true }).fill('Combined results');
+  await expect(preview).toBeEnabled();
+  await page.getByLabel('Message type', { exact: true }).selectOption('announcement');
+  await page.getByLabel('Message', { exact: true }).fill('Announcement');
+  await expect(preview).toBeEnabled();
+});
+
 test('profile avatar opens settings', async ({ page }) => {
   await fixture(page);
   await page.goto('/');
@@ -1865,6 +1885,20 @@ test('message review offers clear timing choices and still requires final approv
   await expect(
     review.getByRole('button', { name: 'Schedule messages', exact: true }),
   ).toBeDisabled();
+  await review.getByLabel('Send date and time', { exact: true }).fill('2020-01-02T10:30');
+  await review.getByRole('button', { name: 'Schedule messages', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Confirm schedule', exact: true })
+    .click();
+  const scheduleError = page.getByText('Choose a time at least one minute in the future.', {
+    exact: true,
+  });
+  await expect(scheduleError).toHaveCount(1);
+  await expect(scheduleError).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(scheduleError).toHaveCount(0);
+  expect(control.writes).toHaveLength(0);
   await review.getByLabel('Send date and time', { exact: true }).fill('2030-01-02T10:30');
   await expect(review).toContainText('Bangladesh time (UTC+6)');
   if (!info.project.use.isMobile) {
@@ -1879,7 +1913,8 @@ test('message review offers clear timing choices and still requires final approv
     .analyze();
   expect(accessibility.violations).toEqual([]);
   await review.getByRole('button', { name: 'Schedule messages', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('Estimated SMS segments: 7');
+  await expect(page.getByRole('dialog')).toContainText('Messages: 1');
+  await expect(page.getByRole('dialog')).not.toContainText('Estimated SMS segments');
   await expect(page.getByRole('dialog')).toContainText('Estimated cost: ৳2.45');
   await expect(page.getByRole('dialog')).not.toContainText('Pending/absent');
   expect(control.writes).toHaveLength(0);

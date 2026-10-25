@@ -492,7 +492,11 @@ function Compose() {
             <Button
               type="submit"
               busy={action.isPending}
-              disabled={!body || (scope !== 'announcement' && !selectedExams.length)}
+              disabled={
+                !body ||
+                (scope !== 'announcement' && !selectedExams.length) ||
+                (scope === 'subject' && !paper)
+              }
             >
               {t('Prepare preview')}
               <ArrowRight size={17} />
@@ -579,6 +583,15 @@ function CampaignDetail() {
   const [scheduled, setScheduled] = useState(false);
   const [date, setDate] = useState('');
   const [localError, setLocalError] = useState<unknown>(null);
+  function clearFeedback() {
+    setLocalError(null);
+    action.reset();
+    retry.reset();
+  }
+  function changeConfirmation(next: typeof confirm) {
+    clearFeedback();
+    setConfirm(next);
+  }
   const [selected, setSelected] = useState<string[]>([]);
   const [showExclusions, setShowExclusions] = useState(false);
   const edit = useAction();
@@ -606,7 +619,7 @@ function CampaignDetail() {
       <State query={campaign}>
         {item && (
           <>
-            <Alert error={action.error ?? retry.error ?? localError} />
+            {confirm === null && <Alert error={action.error ?? retry.error ?? localError} />}
             {item.reason && <Alert>{item.reason}</Alert>}
             {item.state === 'preparing' && (
               <div className="panel preparation">
@@ -689,7 +702,10 @@ function CampaignDetail() {
                           name="send-timing"
                           checked={!scheduled}
                           disabled={!permissions.includes('messages.send')}
-                          onChange={() => setScheduled(false)}
+                          onChange={() => {
+                            clearFeedback();
+                            setScheduled(false);
+                          }}
                         />
                         {t('Send now')}
                       </label>
@@ -698,7 +714,10 @@ function CampaignDetail() {
                           type="radio"
                           name="send-timing"
                           checked={scheduled}
-                          onChange={() => setScheduled(true)}
+                          onChange={() => {
+                            clearFeedback();
+                            setScheduled(true);
+                          }}
                         />
                         {t('Schedule')}
                       </label>
@@ -716,7 +735,10 @@ function CampaignDetail() {
                       <input
                         type="datetime-local"
                         value={date}
-                        onChange={(e) => setDate(e.target.value)}
+                        onChange={(e) => {
+                          clearFeedback();
+                          setDate(e.target.value);
+                        }}
                         required
                       />
                     </Field>
@@ -729,7 +751,7 @@ function CampaignDetail() {
                       (scheduled && !date) ||
                       !permissions.includes(scheduled ? 'messages.schedule' : 'messages.send')
                     }
-                    onClick={() => setConfirm('send')}
+                    onClick={() => changeConfirmation('send')}
                   >
                     <Send size={17} />
                     {t(scheduled ? 'Schedule messages' : 'Send messages')}
@@ -859,7 +881,7 @@ function CampaignDetail() {
             </section>
             {selected.length > 0 && (
               <div className="actions">
-                <Button variant="secondary" onClick={() => setConfirm('retry')}>
+                <Button variant="secondary" onClick={() => changeConfirmation('retry')}>
                   {t('Review resend (')}
                   {selected.length})
                 </Button>
@@ -878,14 +900,14 @@ function CampaignDetail() {
                   </div>
                   <div className="actions">
                     {!['completed', 'cancelled'].includes(item.state) && (
-                      <Button variant="secondary" onClick={() => setConfirm('cancel')}>
+                      <Button variant="secondary" onClick={() => changeConfirmation('cancel')}>
                         {t('Cancel sending')}
                       </Button>
                     )}
                     <Button
                       variant="danger"
                       disabled={['queued', 'processing'].includes(item.state)}
-                      onClick={() => setConfirm('delete')}
+                      onClick={() => changeConfirmation('delete')}
                     >
                       <Trash2 size={16} />
                       {t('Delete campaign')}
@@ -976,13 +998,12 @@ function CampaignDetail() {
                       : 'Delete campaign'
               }
               open={confirm !== null}
-              onClose={() => setConfirm(null)}
+              onClose={() => changeConfirmation(null)}
             >
               {confirm === 'send' ? (
                 <div>
                   <p>
-                    {t('Messages')}: {item.total} · {t('Estimated SMS segments')}:{' '}
-                    {item.estimated_segments}
+                    {t('Messages')}: {item.total}
                   </p>
                   <p>
                     <strong>
@@ -1008,7 +1029,7 @@ function CampaignDetail() {
               )}
               <Alert error={action.error ?? retry.error ?? localError} />
               <div className="actions">
-                <Button variant="secondary" onClick={() => setConfirm(null)}>
+                <Button variant="secondary" onClick={() => changeConfirmation(null)}>
                   {t('Back')}
                 </Button>
                 <Button
