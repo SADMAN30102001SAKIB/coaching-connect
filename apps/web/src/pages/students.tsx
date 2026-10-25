@@ -49,6 +49,9 @@ function Students() {
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
   const students = useData<StudentsData>(
     `/students?q=${encodeURIComponent(query)}&group_id=${encodeURIComponent(selectedGroup)}&cursor=${encodeURIComponent(cursor)}`,
+    true,
+    undefined,
+    true,
   );
 
   const handleGroupChange = (gid: string) => {

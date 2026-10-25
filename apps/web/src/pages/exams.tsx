@@ -70,7 +70,12 @@ function ExamList() {
     : 'all';
   const [deletingExam, setDeletingExam] = useState<Exam | null>(null);
   const [lifecycleExam, setLifecycleExam] = useState<Exam | null>(null);
-  const list = useData<Paged<Exam>>(`/exams?status=${status}&cursor=${encodeURIComponent(cursor)}`);
+  const list = useData<Paged<Exam>>(
+    `/exams?status=${status}&cursor=${encodeURIComponent(cursor)}`,
+    true,
+    undefined,
+    true,
+  );
   const action = useAction();
   const { permissions } = useCenter();
   const { t, locale } = useLocale();
@@ -112,7 +117,16 @@ function ExamList() {
                   </span>
                   <div className="grow">
                     <strong>{exam.name}</strong>
-                    <small>{exam.exam_date}</small>
+                    <small className="exam-date-line">
+                      <time dateTime={exam.exam_date} title={exam.exam_date}>
+                        {new Intl.DateTimeFormat(locale, {
+                          day: 'numeric',
+                          month: 'short',
+                          timeZone: 'UTC',
+                        }).format(new Date(`${exam.exam_date}T00:00:00Z`))}
+                      </time>
+                      {!exam.active && <span className="badge paused">{t('Archived')}</span>}
+                    </small>
                     {exam.participants !== undefined && (
                       <small>
                         {new Intl.NumberFormat(locale).format(exam.participants)} {t('students')}
@@ -135,7 +149,6 @@ function ExamList() {
                       </small>
                     )}
                   </div>
-                  {!exam.active && <span className="badge paused">{t('Archived')}</span>}
                 </Link>
                 <div className="record-actions">
                   {permissions.includes(exam.active ? 'exams.archive' : 'exams.update') && (
@@ -1011,9 +1024,12 @@ function Marks() {
     progress?: MarkProgress;
   }>(
     `/exams/${id}/papers/${paperId}/marks?cursor=${cursor}${selectedGroup ? `&group_id=${selectedGroup}` : ''}${filter !== 'all' ? `&filter=${filter}` : ''}`,
+    true,
+    undefined,
+    true,
   );
   return (
-    <State query={marks}>
+    <State query={marks} placeholderMode="custom">
       {marks.data && (
         <MarksForm
           key={`${id}:${paperId}:${cursor}:${selectedGroup}:${filter}`}
@@ -1022,6 +1038,7 @@ function Marks() {
           paper={paperId}
           selectedGroup={selectedGroup}
           filter={filter}
+          loading={marks.isPlaceholderData}
           onFilter={(filter) => update({ filter, cursor: '' })}
           onSelectGroup={(gid) => {
             update({ group: gid, cursor: '' });
@@ -1038,6 +1055,7 @@ function MarksForm({
   paper,
   selectedGroup,
   filter,
+  loading,
   onFilter,
   onSelectGroup,
   nextPage,
@@ -1053,6 +1071,7 @@ function MarksForm({
   paper: string;
   selectedGroup: string;
   filter: ResultFilter;
+  loading: boolean;
   onFilter: (filter: ResultFilter) => void;
   onSelectGroup: (v: string) => void;
   nextPage: (v: string) => void;
@@ -1168,8 +1187,13 @@ function MarksForm({
           }
         }}
       >
-        <fieldset disabled={action.isPending} className="form-fields">
-          <section className="panel flush">
+        <fieldset disabled={action.isPending || loading} className="form-fields marks-form-fields">
+          {loading && (
+            <div className="results-loading" role="status">
+              {t('Loading… Showing previous results.')}
+            </div>
+          )}
+          <section className="panel flush marks-panel" aria-busy={loading}>
             {data.items.length ? (
               <div className="marks-list">
                 {data.items.map((row, index) => {

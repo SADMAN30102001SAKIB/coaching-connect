@@ -47,7 +47,12 @@ function History() {
   const { params, update } = useListParams();
   const cursor = params.get('cursor') ?? '';
   const [deletingCampaign, setDeletingCampaign] = useState<Campaign | null>(null);
-  const list = useData<Paged<Campaign>>(`/campaigns?cursor=${encodeURIComponent(cursor)}`);
+  const list = useData<Paged<Campaign>>(
+    `/campaigns?cursor=${encodeURIComponent(cursor)}`,
+    true,
+    undefined,
+    true,
+  );
   const action = useAction();
   const { permissions, center } = useCenter();
   const { t, locale } = useLocale();
@@ -549,6 +554,7 @@ function CampaignDetail() {
       : campaign.data && campaign.data.delivery_checking > 0
         ? 60000
         : undefined,
+    true,
   );
   const action = useAction();
   const retry = useAction();
@@ -576,6 +582,8 @@ function CampaignDetail() {
   const exclusions = useData<Paged<{ student_id: string; student_name: string; reason: string }>>(
     `/campaigns/${id}/exclusions?cursor=${exclusionCursor}`,
     showExclusions && canReadContent,
+    undefined,
+    true,
   );
   const [rebuildKey] = useState(() => crypto.randomUUID());
   const [resend, setResend] = useState(() => ({ selection: '', key: crypto.randomUUID() }));

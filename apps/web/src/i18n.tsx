@@ -540,6 +540,7 @@ const bn: Record<string, string> = {
   'batches selected': 'টি ব্যাচ নির্বাচিত',
   'All students included (no batch filter)': 'সব শিক্ষার্থী অন্তর্ভুক্ত (কোনো ব্যাচ ফিল্টার নেই)',
   'All exam participants': 'পরীক্ষার সব অংশগ্রহণকারী',
+  'Loading… Showing previous results.': 'লোড হচ্ছে… আগের ফলাফল দেখানো হচ্ছে।',
   complete: 'সম্পূর্ণ',
   incomplete: 'অসম্পূর্ণ',
   Marked: 'নম্বর দেওয়া হয়েছে',

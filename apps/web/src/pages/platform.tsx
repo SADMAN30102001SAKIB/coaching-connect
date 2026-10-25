@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import type { Center, Page as Paged } from '@coaching/domain';
 import { request } from '../api';
@@ -15,6 +15,7 @@ export default function Platform() {
   const cursor = params.get('cursor') ?? '';
   const centers = useQuery({
     queryKey: ['platform', cursor],
+    placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       request<Paged<Center & { owner_phone: string; owner_name: string }>>(
         `/platform/centers?cursor=${encodeURIComponent(cursor)}`,

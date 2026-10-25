@@ -862,6 +862,37 @@ select:disabled {
   position: relative;
   min-width: 0;
 }
+.marks-form-fields {
+  position: relative;
+}
+.results-loading {
+  position: absolute;
+  top: -22px;
+  right: 0;
+  z-index: 2;
+  max-width: calc(100% - 16px);
+  padding: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  pointer-events: none;
+}
+.query-content[inert],
+.marks-panel[aria-busy='true'] .mark-row {
+  opacity: 0.55;
+}
+.panel .exam-record .record-row-content .grow .exam-date-line {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+.panel .record-row.exam-record .record-row-content .exam-date-line .badge {
+  font-size: 10px;
+  padding: 2px 5px;
+  margin-top: 0;
+  line-height: 1.2;
+}
 .query-notice {
   display: flex;
   align-items: center;

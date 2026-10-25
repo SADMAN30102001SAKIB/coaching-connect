@@ -134,16 +134,33 @@ export function useData<T>(
   path: string,
   enabled = true,
   interval?: number | ((data: T | undefined) => number | false),
+  retainPrevious = false,
 ) {
   const { centerId } = useCenter();
-  return useQuery({
+  return useQuery<T>({
     queryKey: ['data', centerId, path],
     queryFn: ({ signal }) => request<T>(`/c/${centerId}${path}`, 'GET', undefined, signal),
     enabled,
+    placeholderData: (previous, query) => {
+      if (!retainPrevious) return undefined;
+      const previousPath = query?.queryKey[2];
+      return query?.queryKey[1] === centerId &&
+        typeof previousPath === 'string' &&
+        listIdentity(previousPath) === listIdentity(path)
+        ? previous
+        : undefined;
+    },
     refetchInterval:
       typeof interval === 'function' ? (query) => interval(query.state.data) : (interval ?? false),
     refetchIntervalInBackground: false,
   });
+}
+function listIdentity(path: string) {
+  const [resource, search] = path.split('?');
+  const params = new URLSearchParams(search);
+  for (const key of ['cursor', 'q', 'group_id', 'filter', 'status']) params.delete(key);
+  params.sort();
+  return `${resource}?${params}`;
 }
 export function useAction<T = { id: string }>() {
   const { centerId } = useCenter();

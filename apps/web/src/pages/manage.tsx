@@ -62,6 +62,9 @@ function CatalogPage({ groups = false }: { groups?: boolean }) {
   const [selected, setSelected] = useState<Catalog | null>(null);
   const list = useData<Paged<Catalog>>(
     `/catalog?kind=${kind}&cursor=${encodeURIComponent(cursor)}`,
+    true,
+    undefined,
+    true,
   );
   const members = useChoices<Student>(`/groups/${selected?.id ?? ''}/members`, Boolean(selected));
   const action = useAction();
@@ -268,7 +271,12 @@ function CatalogForm({
 function Templates() {
   const { params, update: updateParams } = useListParams();
   const cursor = params.get('cursor') ?? '';
-  const templates = useData<Paged<Template>>(`/templates?cursor=${encodeURIComponent(cursor)}`);
+  const templates = useData<Paged<Template>>(
+    `/templates?cursor=${encodeURIComponent(cursor)}`,
+    true,
+    undefined,
+    true,
+  );
   const { permissions } = useCenter();
   const { t } = useLocale();
   const [edit, setEdit] = useState<Template | 'new' | null>(null);

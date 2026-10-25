@@ -180,6 +180,7 @@ export function Loading({ compact = false }: { compact?: boolean }) {
 export function State({
   query,
   compact = false,
+  placeholderMode = 'block',
   children,
 }: {
   query: {
@@ -189,9 +190,11 @@ export function State({
     isFetching: boolean;
     fetchStatus: string;
     refetch: () => Promise<unknown>;
+    isPlaceholderData?: boolean;
   };
   children: ReactNode;
   compact?: boolean;
+  placeholderMode?: 'block' | 'custom';
 }) {
   const { t } = useLocale();
   const terminal = query.error instanceof ApiError && [401, 403, 404].includes(query.error.status);
@@ -199,6 +202,11 @@ export function State({
   const paused = query.fetchStatus === 'paused';
   return (
     <div className="query-state" aria-busy={query.isFetching}>
+      {query.isPlaceholderData && placeholderMode === 'block' && (
+        <div className="results-loading" role="status">
+          {t('Loading… Showing previous results.')}
+        </div>
+      )}
       {(query.error || paused) && (
         <div className="query-notice" role="status">
           <div>
@@ -226,7 +234,16 @@ export function State({
           )}
         </div>
       )}
-      {hasData ? children : query.isPending && !paused ? <Loading compact={compact} /> : null}
+      {hasData ? (
+        <div
+          className="query-content"
+          inert={Boolean(query.isPlaceholderData && placeholderMode === 'block')}
+        >
+          {children}
+        </div>
+      ) : query.isPending && !paused ? (
+        <Loading compact={compact} />
+      ) : null}
     </div>
   );
 }

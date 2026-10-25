@@ -1,6 +1,254 @@
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
+test('platform pagination keeps old center rows labelled and inert while loading', async ({
+  page,
+}) => {
+  const control = await fixture(page);
+  control.platform = true;
+  control.noCenters = true;
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/platform/centers?*', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('cursor')) await gate;
+    return route.fallback();
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'First Coaching', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  try {
+    await expect(page.getByText('First Coaching', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText('Loading… Showing previous results.', { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator('.query-content[inert]')).toHaveCount(1);
+    await expect(page.locator('.skeleton')).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await expect(page.getByRole('heading', { name: 'Second Coaching', exact: true })).toBeVisible();
+});
+
+test('campaign message and exclusion pagination retains only the changing list', async ({
+  page,
+}) => {
+  await fixture(page, ['messages.read_content']);
+  await page.route('**/api/c/center-a/campaigns/campaign-a', (route) =>
+    route.fulfill({
+      json: {
+        id: 'campaign-a',
+        name: 'Campaign test',
+        state: 'completed',
+        total: 2,
+        submitted: 2,
+        delivered: 2,
+        unknown: 0,
+        failed: 0,
+        skipped: 0,
+        excluded: 2,
+        delivery_checking: 0,
+        delivery_unconfirmed: 0,
+      },
+    }),
+  );
+  for (const kind of ['messages', 'exclusions']) {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(`**/api/c/center-a/campaigns/campaign-a/${kind}?*`, async (route) => {
+      const next = Boolean(new URL(route.request().url()).searchParams.get('cursor'));
+      if (next) await gate;
+      const name = `${next ? 'New' : 'Old'} ${kind}`;
+      return route.fulfill({
+        json: {
+          items: [
+            kind === 'messages'
+              ? {
+                  id: name,
+                  student_name: name,
+                  phone: '8801700000001',
+                  body: 'Fixture message',
+                  state: 'delivered',
+                  segments: 1,
+                }
+              : { student_id: name, student_name: name, reason: 'No permitted contact' },
+          ],
+          next: next ? null : 'next',
+        },
+      });
+    });
+    if (kind === 'messages') await page.goto('/messages/campaign-a');
+    else await page.getByRole('button', { name: /View excluded students/ }).click();
+    await expect(page.getByText(`Old ${kind}`, { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    try {
+      await expect(page.getByRole('heading', { name: 'Campaign test', exact: true })).toBeVisible();
+      await expect(page.getByText(`Old ${kind}`, { exact: true })).toBeVisible();
+      await expect(
+        page.getByText('Loading… Showing previous results.', { exact: true }),
+      ).toBeVisible();
+      await expect(page.locator('.skeleton')).toHaveCount(0);
+    } finally {
+      release();
+    }
+    await expect(page.getByText(`New ${kind}`, { exact: true })).toBeVisible();
+  }
+});
+
+test('marks filters keep the header and controls visible while only old rows are blocked', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/c/center-a/exams/exam-a/papers/paper-a/marks?*', async (route) => {
+    if (new URL(route.request().url()).searchParams.has('filter')) await gate;
+    return route.fallback();
+  });
+  await page.goto('/exams/exam-a/marks/paper-a');
+  const heading = page.getByRole('heading', { name: 'Enter marks', exact: true });
+  await expect(page.getByLabel('Marks for Ayesha', { exact: true })).toBeVisible();
+  const before = await heading.boundingBox();
+  await page
+    .getByRole('group', { name: 'Filter results' })
+    .getByRole('button', { name: 'Marked', exact: true })
+    .click();
+  try {
+    await expect(page.getByRole('status').filter({ hasText: 'Loading…' })).toBeVisible();
+    await expect(heading).toBeVisible();
+    expect(await heading.boundingBox()).toEqual(before);
+    await expect(page.getByRole('group', { name: 'Filter results' })).toBeVisible();
+    await expect(page.getByLabel('Marks for Ayesha', { exact: true })).toBeDisabled();
+    await expect(page.locator('.skeleton')).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath('marks-loading-stable.png'), fullPage: true });
+  } finally {
+    release();
+  }
+  await expect(page.getByLabel('Marks for Ayesha', { exact: true })).toBeEnabled();
+});
+
+test('list pagination retains clearly labelled inactive results instead of a full skeleton', async ({
+  page,
+}) => {
+  await fixture(page);
+  const cases = [
+    {
+      page: '/students',
+      api: 'students',
+      item: { id: 'student-a', name: 'First student', identifier: '', groups: '', active: 1 },
+    },
+    {
+      page: '/exams',
+      api: 'exams',
+      item: { id: 'exam-a', name: 'First exam', exam_date: '2026-10-25', active: 1, version: 1 },
+    },
+    {
+      page: '/messages',
+      api: 'campaigns',
+      item: {
+        id: 'campaign-a',
+        name: 'First campaign',
+        created_at: 1,
+        state: 'completed',
+        total: 1,
+        delivered: 0,
+      },
+    },
+    {
+      page: '/groups',
+      api: 'catalog',
+      item: { id: 'group-a', name: 'First group', kind: 'group', version: 1 },
+    },
+    {
+      page: '/academic',
+      api: 'catalog',
+      item: { id: 'subject-a', name: 'First subject', kind: 'subject', version: 1 },
+    },
+    {
+      page: '/templates',
+      api: 'templates',
+      item: {
+        id: 'template-a',
+        name: 'First template',
+        body: 'Hello',
+        scope: 'announcement',
+        version: 1,
+      },
+    },
+  ];
+  for (const entry of cases) {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pattern = `**/api/c/center-a/${entry.api}?*`;
+    await page.route(pattern, async (route) => {
+      const next = Boolean(new URL(route.request().url()).searchParams.get('cursor'));
+      if (next) await gate;
+      return route.fulfill({
+        json: {
+          items: [{ ...entry.item, name: next ? 'Second result' : entry.item.name }],
+          next: next ? null : 'next-page',
+        },
+      });
+    });
+    await page.goto(entry.page);
+    await expect(page.getByText(entry.item.name, { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    try {
+      await expect(
+        page.getByText('Loading… Showing previous results.', { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByText(entry.item.name, { exact: true })).toBeVisible();
+      await expect(page.locator('.query-content[inert]')).toHaveCount(1);
+      await expect(page.locator('.skeleton')).toHaveCount(0);
+    } finally {
+      release();
+    }
+    await expect(page.getByText('Second result', { exact: true })).toBeVisible();
+    await page.unroute(pattern);
+  }
+});
+
+test('archived exam badge shares the date line without adding a separate row', async ({
+  page,
+}, info) => {
+  await fixture(page);
+  if (info.project.use.isMobile) await page.setViewportSize({ width: 320, height: 850 });
+  await page.route('**/api/c/center-a/exams?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [1, 0].map((active) => ({
+          id: `exam-${active}`,
+          name: 'Model Test 1',
+          exam_date: '2026-10-24',
+          active,
+          participants: 3,
+          subject_count: 2,
+          complete_count: 1,
+          version: 1,
+        })),
+        next: null,
+      },
+    }),
+  );
+  await page.goto('/exams');
+  await expect(page.locator('.exam-record')).toHaveCount(2);
+  const rows = page.locator('.exam-record');
+  const a = await rows.nth(0).boundingBox(),
+    b = await rows.nth(1).boundingBox();
+  if (!a || !b) throw new Error('Missing exam rows');
+  expect(Math.abs(a.height - b.height)).toBeLessThanOrEqual(1.5);
+  await expect(rows.nth(1).locator('.exam-date-line .badge')).toHaveText('Archived');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('inline-archived.png'), fullPage: true });
+});
+
 test('exam progress links open filtered marks and protect unsaved edits', async ({
   page,
 }, info) => {
