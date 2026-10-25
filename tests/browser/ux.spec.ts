@@ -39,9 +39,14 @@ test('message status stays beside short and long titles without increasing row h
     ).toBeLessThan(2);
     expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(badgeBox.x);
     await expect(title).toHaveCSS('text-overflow', 'ellipsis');
-    heights.push((await row.boundingBox())!.height);
+    const rowBox = await row.boundingBox();
+    if (!rowBox) throw new Error('Missing message row');
+    heights.push(rowBox.height);
   }
-  expect(Math.abs(heights[0]! - heights[1]!)).toBeLessThanOrEqual(1);
+  const [firstHeight, secondHeight] = heights;
+  if (firstHeight === undefined || secondHeight === undefined)
+    throw new Error('Missing message row heights');
+  expect(Math.abs(firstHeight - secondHeight)).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
